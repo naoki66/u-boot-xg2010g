@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>用于替换 Brightspeed XG2010G 原厂 <code>/dev/mtd0</code> 的 signed U-Boot/FIP 启动镜像。</strong><br>
-  <sub>社区非官方固件 · 与 Brightspeed / Airoha 无从属关系 · 刷写有变砖风险，请先完整备份</sub>
+  <sub>本仓库为社区非官方固件· 刷写有变砖风险，请先完整备份</sub>
 </p>
 
 <p align="center">
@@ -87,9 +87,8 @@
 ## 📌 项目定位
 
 本仓库基于当前主线 U-Boot，加入 Brightspeed XG2010G 的 Airoha AN7581 类平台
-板级支持，用于替换原厂被限制功能的 `mtd0 bootloader`。这是社区维护的
-非官方固件项目，与 Brightspeed、Airoha 无任何从属关系；刷写 bootloader
-存在变砖风险，请自行评估并承担操作后果。
+板级支持，用于替换原厂被限制功能的 `mtd0 bootloader`。这是社区维护的非官方固件项目，
+刷写 bootloader存在变砖风险，请自行评估并承担操作后果。
 
 | 项目 | 当前约束 |
 | --- | --- |
@@ -97,7 +96,6 @@
 | 平台 | Airoha AN7581/AN7583 类启动链 |
 | bootloader 分区 | `0x00000000-0x00200000`，固定 2 MiB |
 | 系统分区 | `0x00600000-0x1be00000`，作为 UBI 区域 |
-| 签名策略 | GitHub Actions 强制 signed artifact，不提供未签名刷写选项 |
 | 工具版本 | TF-A tooling 固定为 `v2.13.0`，用于构建 `fiptool` 和 `cert_create` |
 
 XG2010G 的 `mtd0` 通常不是裸 `u-boot.bin`，而是一个从 BL2 开始验证的完整
@@ -112,13 +110,12 @@ signed mtd0/FIP。
 | 图标 | 特性 | 说明 |
 | --- | --- | --- |
 | 🧩 | 主线 U-Boot | 基于 U-Boot `2026.10-rc3` 主线，新增 XG2010G 板级 DTS 与 `xg2010g_defconfig` |
-| 🔐 | 强制 Trusted Boot | Actions 构建必须完成签名，**不存在** unsigned/skip 出口，未签名不上传 |
+| 🔐 | 设备强制启用 Trusted Boot ，自行编译请注意签名  |
 | 🧱 | mtd0 边界硬校验 | workflow 强制 mtd0 = `0x200000`（2 MiB），越界直接构建失败 |
-| 🧬 | 可追溯 BL2/BL31 | 内置前导区、BL2、BL31 均记录 SHA256，来自 `2026-08-16` 原厂备份 |
-| 🔧 | 固定可复现工具链 | TF-A `v2.13.0` 固定 ref，`fiptool` / `cert_create` 产物可复现 |
+| 🧬 | 可追溯 BL2/BL31 | 内置前导区、BL2、BL31 均记录 SHA256，来自原厂镜像备份 |
+| 🔧 | 固定可复现工具链 | TF-A `v2.13.0` 固定 ref，`fiptool` / `cert_create`  |
 | 🛟 | 双救砖路径 | BootROM X 模式 XMODEM 两段传输 + Web Recovery 重建 UBI |
 | 📦 | 完整交付物 | 每次构建附带 `sha256sums.txt` 与 `build-info.txt`（commit、日期、边界） |
-| 🔑 | 私钥不落盘 | `XG2010G_TB_PRIVATE_KEY` 只存 GitHub Secret，证书私钥材料不进 artifact |
 
 <p align="right"><a href="#top"><b>↑ 返回顶部</b></a></p>
 
@@ -146,16 +143,14 @@ signed mtd0/FIP。
 | TTL/TFTP 网段 | U-Boot `192.168.0.1`，电脑 `192.168.0.205/24` |
 | Web Recovery | 无痕模式打开 `http://192.168.1.1/uboot.html`，必须勾选“先重建 UBI” |
 | 救砖文件 | `ubi-preloader.bin` + `ubi-bl31-uboot.fip`（XMODEM 两段） |
-| 签名私钥 | 仅存 GitHub Secret `XG2010G_TB_PRIVATE_KEY` |
 
 <p align="right"><a href="#top"><b>↑ 返回顶部</b></a></p>
 
 ## 🔒 安全边界
 
 > [!WARNING]
-> `mtd0` 的正确长度是 `0x200000`，即 2 MiB。不要使用 `0x2000000` 作为
-> bootloader 擦写长度；那是 32 MiB，会越过 `mtd0`、`uenv`、`dsd` 并进入
-> 系统区域。
+> `mtd0` 的正确长度是 `0x200000`，即 2 MiB。不要使用 其他擦写长度；
+> 会越过 `mtd0`、`uenv`、`dsd` 破坏系统区域。
 
 > [!CAUTION]
 > 刷写 bootloader 前必须保存完整原厂备份，并确认 NAND 型号、页大小、
@@ -165,9 +160,8 @@ signed mtd0/FIP。
 | --- | --- |
 | `bootloader` | 只允许写 `0x00000000-0x00200000` 的完整 signed mtd0 |
 | `uenv` | 默认保留；`saveenv` 会写这里，改环境前先 `printenv` 备份 |
-| `dsd` | 原厂数据，必须保留 |
+| `dsd` | 原厂校准数据，必须保留 |
 | `reserved_bmt` | NAND 坏块替代/BMT 预留，不能被系统镜像覆盖 |
-| 私钥 | `XG2010G_TB_PRIVATE_KEY` 只放 GitHub Secret；若曾公开出现，应轮换 |
 
 <p align="right"><a href="#top"><b>↑ 返回顶部</b></a></p>
 
@@ -196,9 +190,8 @@ flowchart LR
 
 ## 🔑 BL2、BL31 与签名
 
-BL2 和 BL31 不是 U-Boot 生成的文件，也不能由 Trusted Boot Key 生成。它们
-必须来自与设备硬件匹配的 Airoha 固件输入，或者来自完整可用的 Airoha
-TF-A/DDR 初始化源码和签名配置。
+BL2 和 BL31 必须来自与设备硬件匹配的 Airoha 固件输入，
+或者来自完整可用的 Airoha TF-A/DDR 初始化源码和签名配置。
 
 当前兼容方案：
 
@@ -250,21 +243,6 @@ flowchart LR
 
 <p align="right"><a href="#top"><b>↑ 返回顶部</b></a></p>
 
-## 📜 证书产物
-
-签名过程中会临时生成 `trusted_key.crt`、`tb_fw.crt`、`tb_fw_key.crt`、
-`soc_fw.crt`、`soc_fw_key.crt`、`nt_fw.crt` 和 `nt_fw_key.crt`。
-
-这些是 TF-A `cert_create` 生成的 X.509 证书链/内容证书，用于把 BL2、BL31、
-U-Boot/BL33 的哈希、公钥关系和 NV counter 等元数据放进 signed FIP。它们
-不是私钥，也不应包含 `XG2010G_TB_PRIVATE_KEY` 的私钥内容。
-
-单独 `.crt` 文件对最终刷机不是必需文件，并且会暴露证书链结构、公钥材料、
-镜像哈希和构建元数据。signed FIP/mtd0 内部仍会包含启动验证必需的证书内容。
-因此 workflow 只在签名过程中临时生成单独 `.crt` 文件，不上传到 artifact 或
-GitHub Releases。
-
-<p align="right"><a href="#top"><b>↑ 返回顶部</b></a></p>
 
 ## 📊 NAND 分区图
 
@@ -284,7 +262,7 @@ pie showData
 | --- | --- | --- | --- | --- |
 | `bootloader` | `0x00000000` | `0x00200000` | 2 MiB | 完整 signed mtd0/FIP，只在确认后替换 |
 | `uenv` | `0x00200000` | `0x00400000` | 2 MiB | U-Boot 环境，默认保留 |
-| `dsd` | `0x00400000` | `0x00600000` | 2 MiB | 原厂数据，必须保留 |
+| `dsd` | `0x00400000` | `0x00600000` | 2 MiB | 原厂校准数据，必须保留 |
 | `ubi` | `0x00600000` | `0x1be00000` | 440 MiB | 后续系统镜像/UBI 数据 |
 | `reserved_bmt` | `0x1be00000` | `0x20000000` | 66 MiB | NAND 坏块替代/BMT 预留 |
 
@@ -564,7 +542,6 @@ reboot
 | `tftpboot` 超时 / 下载失败 | IP 不对、TFTP 被防火墙拦截、网线没接 1G 口 | 确认电脑为 `192.168.0.205/24`、TFTP server 已运行并放行、网线接设备 1G 口 |
 | `filesize` 不是 `0x200000` 或 CRC 与发布值不符 | 文件下载不完整或拿错产物 | 用 Release 内 `sha256sums.txt` 校验，重新下载 `mtd0-signed.bin` |
 | 第二段 XMODEM 后进不了 Web Recovery | <kbd>RESET</kbd> 时序不对 | 传输 100% 前按住 <kbd>RESET</kbd>，等流水灯亮起再松开，无痕模式访问 |
-| 刷完系统后 2.5G 电口不能上网 | `serdes_ethernet` 方向配置为网口 | 保持默认 `411`（光口/PON）；`421` 仅作临时调试 |
 | 想临时回原厂系统 | 之前保存过 `bootcmd_stock` | 见[正常引导与回退](#-正常引导与回退)中的 legacy 回退命令 |
 
 <p align="right"><a href="#top"><b>↑ 返回顶部</b></a></p>
