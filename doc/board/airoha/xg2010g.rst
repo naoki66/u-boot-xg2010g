@@ -1,0 +1,164 @@
+XG2010G U-Boot
+==============
+
+本文档记录 XG2010G 的 U-Boot 板级配置、启动链和 NAND 布局。
+XG2010G 使用 Airoha AN7581 类 SoC。当前配置基于上游 U-Boot 已有的
+AN7581 支持，并在本项目中加入 XG2010G 的板级设备树。
+
+安全提醒
+--------
+
+刷写 bootloader 或 NAND 前必须准备完整的原厂备份，并确认 NAND 型号、
+容量、页大小、擦除块大小、ECC/OOB 方式和 BootROM 的镜像格式完全匹配。
+错误的 mtd0 镜像可能导致设备无法从 NAND 启动；本项目不提供盲刷命令。
+
+本仓库不得提交以下内容：
+
+* 原厂 mtd0、完整固件备份或从备份提取的二进制；
+* Trusted Boot 私钥、密钥目录、签名配置和未公开的证书材料；
+* 仅适用于单台设备的序列号、MAC 地址或工厂校准数据；
+* 构建目录和未经验证的最终刷写镜像。
+
+启动链
+------
+
+AN7581 类平台的典型启动顺序如下：
+
+1. 片内 BootROM 从 NAND 的启动位置读取启动镜像。
+2. BootROM 启动 BL2。BL2 负责早期硬件初始化，尤其是 DDR 初始化，
+   并根据平台策略验证和装载后续组件。
+3. BL2 装载 BL31。BL31 是 ARM Trusted Firmware 的 EL3 运行时固件，
+   负责安全监控器和安全世界/普通世界切换。
+4. BL31 将控制权交给 BL33。这里的 BL33 通常就是 U-Boot。
+5. U-Boot 访问 NAND 上的 UBI/UBIFS 或 FIT 镜像，最后启动 Linux。
+
+因此，单独编译出来的 ``u-boot.bin`` 通常不能直接替代完整的 mtd0。
+在使用 FIP 启动的设备上，mtd0 中应是与该平台 BootROM/BL2 约定的完整
+FIP，而不是只有 BL33 的裸 U-Boot。
+
+BL2、BL31 和 Trusted Boot Key
+-----------------------------
+
+BL2 和 BL31 不是普通 U-Boot 配置项，也不能由 Trusted Boot Key “生成”。
+本项目的首个兼容性方案是：
+
+* 从同一台设备的原厂 mtd0/FIP 中提取并保留与硬件匹配的 BL2 和 BL31；
+* 编译本项目得到新的 U-Boot，作为 BL33；
+* 使用与 Airoha 平台镜像流程兼容的 ``fiptool`` 重新组装 FIP；
+* 按 BootROM/BL2 的实际校验策略重新生成或更新证书和签名。
+
+原厂 FIP 的证书链不能因为只替换了 BL33 就默认继续有效。若证书中包含
+BL33 的摘要，替换 BL33 后必须重新生成对应的内容证书和签名；若设备启用
+了锁定的 Trusted Boot，还必须使用设备认可的签名根。没有正确的签名密钥
+或密钥授权时，新 FIP 可能在 BootROM 或 BL2 阶段被拒绝。
+
+已从原厂 mtd0 备份确认其包含 FIP 头 ``0xaa640001``，且 FIP 位于 mtd0
+偏移 ``0x800``。备份中可见 BL2、BL31、BL33/U-Boot 和 Trusted Boot
+证书。下面这些偏移仅用于分析原厂文件，不能当作所有 XG2010G 设备的
+通用格式：
+
+* BL2：FIP 相对偏移约 ``0x400``；
+* BL31：FIP 相对偏移约 ``0x1f800``；
+* BL33：FIP 相对偏移约 ``0x29c00``。
+
+重新组装 FIP 时应以目标平台提供的 ``fiptool``、FIP UUID 定义、载入地址、
+对齐要求和签名配置为准。不要把本仓库的 U-Boot 配置误认为已经完成了
+Airoha 私有 FIP 签名流程。
+
+NAND 分区
+---------
+
+按当前目标设备的 512 MiB NAND 规划，分区如下。地址和大小均为字节：
+
+.. list-table::
+   :header-rows: 1
+   :widths: 25 20 20 35
+
+   * - 分区
+     - 起始
+     - 结束（不含）
+     - 用途
+   * - ``bootloader``
+     - ``0x00000000``
+     - ``0x00200000``
+     - 2 MiB，完整启动镜像/FIP，只读保护
+   * - ``uenv``
+     - ``0x00200000``
+     - ``0x00400000``
+     - 2 MiB，U-Boot 环境所在区域
+   * - ``dsd``
+     - ``0x00400000``
+     - ``0x00600000``
+     - 2 MiB，保留原有数据
+   * - ``ubi``
+     - ``0x00600000``
+     - ``0x1be00000``
+     - 440 MiB，后续系统镜像/UBI 数据
+   * - ``reserved_bmt``
+     - ``0x1be00000``
+     - ``0x20000000``
+     - 66 MiB，坏块替代和 BMT 预留，只读保护
+
+这里的 ``ubi`` 是给 UBI 使用的 MTD 分区；“UBI 2.0”表示目标系统的
+UBI 分区/布局约定，不是 U-Boot 中需要选择的另一个 UBI 工具版本。
+UBI 会根据 NAND 的实际擦除块和坏块情况管理可用 PEB。尾部预留区不能
+被系统镜像、UBI 镜像或升级脚本覆盖。
+
+刷写边界
+--------
+
+升级系统时只允许操作 ``ubi`` 分区，即 NAND 偏移
+``0x00600000`` 起、长度 ``0x1b800000`` 的范围。升级流程应使用 MTD
+分区名 ``ubi``，让 MTD/UBI 处理坏块，不应把整个 NAND 或 ``mtd0`` 当作
+系统镜像目标。
+
+bootloader 只允许在明确验证 FIP、签名、BL2/BL31 兼容性后替换
+``0x00000000-0x00200000``。任何 bootloader 升级操作都必须保持
+``uenv`` 的 ``0x00200000-0x00400000`` 和 ``dsd`` 的
+``0x00400000-0x00600000`` 原样不变。``reserved_bmt`` 也不得写入。
+
+U-Boot 配置
+-----------
+
+构建配置为 ``configs/xg2010g_defconfig``。它启用：
+
+* AN7581 CPU、DDR、UART 和 SPI-NAND/SNFI；
+* MTD、固定分区、UBI 和 UBIFS 命令；
+* 将环境放在 ``spi-nand0`` 的绝对偏移 ``0x00200000``；
+* 以 ``xg2010g`` 作为默认设备树。
+
+由于 XG2010G 的板级 DTS 尚未进入 Linux 的 dts/upstream，本项目有意关闭
+``CONFIG_OF_UPSTREAM``，而在 ``arch/arm/dts`` 维护很小的板级文件。
+SoC 级 DTS 仍然引用 U-Boot 已同步的 Airoha ``en7581.dtsi``。
+
+建议的验证顺序
+--------------
+
+在 Linux/WSL 环境中，先执行：
+
+.. code-block:: console
+
+   make CROSS_COMPILE=aarch64-linux-gnu- xg2010g_defconfig
+   make CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc)
+
+若在 Windows 的 ``/mnt/d`` 这类 drvfs 挂载上构建，必须确认 Git 符号链接
+和脚本可执行位被正确保留。更稳妥的做法是在 WSL 的 Linux 文件系统中构建，
+或使用 ``git archive`` 导出一份临时构建副本后再编译。
+
+构建得到的 ``u-boot.bin`` 是 BL33 候选文件。它还需要按照目标平台的
+FIP 流程封装，不能直接当作完整 mtd0 写入。
+
+使用平台提供的 ``fiptool`` 时，概念上的流程是：
+
+.. code-block:: console
+
+   fiptool info original.fip
+   fiptool create --tb-fw bl2.bin --soc-fw bl31.bin --nt-fw u-boot.bin new.fip
+
+上面的命令只表示 FIP 中 BL2、BL31、BL33 的关系。真实设备如果启用
+Trusted Boot，通常还需要平台专用的证书、密钥、UUID、载入地址、签名参数
+和可能的额外固件项；不能直接照抄此示例生成可启动镜像。
+
+将 FIP 放入 mtd0 时，还要确认原厂镜像的前导数据、FIP 在 mtd0 中的偏移、
+NAND 坏块处理和 BootROM 的复制规则。建议先通过串口验证 U-Boot 能识别
+NAND 和分区，再在 Linux 中确认 ``cat /proc/mtd`` 的边界与本 DTS 一致。

@@ -9,6 +9,7 @@ Board-specific doc
    acer/index
    actions/index
    advantech/index
+   airoha/index
    andestech/index
    alliedtelesis/index
    allwinner/index

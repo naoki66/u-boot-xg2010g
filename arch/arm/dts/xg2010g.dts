@@ -1,0 +1,62 @@
+// SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+
+/dts-v1/;
+
+/* BL2/BL31 use the first 2 MiB of DDR before handing off to U-Boot. */
+/memreserve/ 0x80000000 0x200000;
+
+#include "../../../dts/upstream/src/arm64/airoha/en7581.dtsi"
+
+/ {
+	model = "XG2010G";
+	compatible = "naoki,xg2010g", "airoha,en7581";
+
+	aliases {
+		serial0 = &uart1;
+	};
+
+	chosen {
+		stdout-path = "serial0:115200n8";
+		linux,usable-memory-range = <0x0 0x80200000 0x0 0x3fe00000>;
+	};
+
+	memory@80000000 {
+		device_type = "memory";
+		reg = <0x0 0x80000000 0x0 0x40000000>;
+	};
+};
+
+&spi_nand {
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		bootloader@0 {
+			label = "bootloader";
+			reg = <0x00000000 0x00200000>;
+			read-only;
+		};
+
+		uenv@200000 {
+			label = "uenv";
+			reg = <0x00200000 0x00200000>;
+		};
+
+		dsd@400000 {
+			label = "dsd";
+			reg = <0x00400000 0x00200000>;
+		};
+
+		ubi@600000 {
+			label = "ubi";
+			reg = <0x00600000 0x1b800000>;
+		};
+
+		reserved-bmt@1be00000 {
+			label = "reserved_bmt";
+			reg = <0x1be00000 0x04200000>;
+			read-only;
+		};
+	};
+};

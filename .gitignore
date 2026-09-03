@@ -142,3 +142,18 @@ __pycache__
 
 # Clang's compilation database file
 /compile_commands.json
+
+#
+# XG2010G local backup / signing artifacts
+#
+*.cert
+*.crt
+*.csr
+*.der
+*.fip
+*.key
+*.p12
+*.pfx
+DUMPTMP/
+mtd*.dump
+original-device-backup-*/

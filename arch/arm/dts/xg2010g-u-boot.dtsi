@@ -1,0 +1,16 @@
+// SPDX-License-Identifier: GPL-2.0+
+
+/*
+ * U-Boot-specific hardware description.  The SoC description and the
+ * board-level memory layout live in xg2010g.dts.
+ */
+
+#include "an7581-u-boot.dtsi"
+
+&snfi {
+	status = "okay";
+};
+
+&spi_nand {
+	status = "okay";
+};
