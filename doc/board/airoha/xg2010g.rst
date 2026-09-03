@@ -290,6 +290,17 @@ X 模式加载临时引导。该流程需要 TTL 串口和支持 XMODEM 的终�
 8. 必须勾选“先重建 UBI”，等待数分钟完成刷写。
 9. 刷写完成后务必断电重启设备。
 
+U-Boot 启动后会对 RESET GPIO 做确认：默认需要持续按住 3 秒才进入 Web
+Recovery，并在串口打印倒计时。中途松开会取消恢复并继续正常启动。可通过环境变量
+调整等待时间：
+
+.. code-block:: console
+
+   setenv recovery_button_timeout 5
+   saveenv
+
+设置为 ``0`` 可恢复为检测到按键后立即进入恢复。
+
 ``bootext.ram`` 属于平台救援链文件，不由本仓库的 U-Boot 编译生成；需要
 保留已验证可用的原厂/平台版本。
 

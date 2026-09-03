@@ -18,9 +18,11 @@
 #include <u-boot/crc.h>
 #include <xg2010g_version.h>
 #include <linux/bitops.h>
+#include <linux/delay.h>
 #include <linux/err.h>
 #include <linux/kconfig.h>
 #include <linux/string.h>
+#include <time.h>
 
 DECLARE_GLOBAL_DATA_PTR;
 
@@ -768,6 +770,55 @@ static int xg2010g_recovery_button_pressed(void)
 	return ret > 0;
 }
 
+/*
+ * Require the recovery button to remain pressed for a short, configurable
+ * interval.  This avoids entering recovery on a switch bounce or a brief
+ * accidental press while still allowing a zero-second immediate trigger.
+ */
+static bool xg2010g_recovery_button_confirmed(void)
+{
+	ulong timeout = env_get_ulong("recovery_button_timeout", 10, 3);
+	ulong start, elapsed, shown = ~0UL;
+
+	if (!xg2010g_recovery_button_pressed())
+		return false;
+
+	if (!timeout) {
+		printf("Recovery button detected, starting web recovery...\n");
+		return true;
+	}
+
+	/* Avoid an unexpectedly long blocking delay from a corrupt environment. */
+	if (timeout > 30)
+		timeout = 30;
+
+	printf("Recovery button detected; hold for %lu seconds", timeout);
+	start = get_timer(0);
+	for (;;) {
+		if (!xg2010g_recovery_button_pressed()) {
+			printf("\nRecovery button released; continuing normal boot\n");
+			return false;
+		}
+
+		elapsed = get_timer(start);
+		if (elapsed >= timeout * 1000)
+			break;
+
+		{
+			ulong left = timeout - elapsed / 1000;
+
+			if (left != shown) {
+				printf("\nRecovery starts in %lu...", left);
+				shown = left;
+			}
+		}
+		mdelay(100);
+	}
+
+	printf("\nRecovery button hold confirmed, starting web recovery...\n");
+	return true;
+}
+
 int board_late_init(void)
 {
 	char boot_ubi[64];
@@ -844,10 +895,8 @@ int board_late_init(void)
 	    !strcmp(env_get("recovery_trigger"), "1")) {
 		/* The persistent clear is performed by the MTD environment backend. */
 		env_set("recovery_trigger", "0");
-	} else if (!xg2010g_recovery_button_pressed()) {
+	} else if (!xg2010g_recovery_button_confirmed()) {
 		return 0;
-	} else {
-		printf("Recovery button detected, starting web recovery...\n");
 	}
 
 	env_set("ipaddr", "192.168.1.1");

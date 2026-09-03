@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>用于替换 Brightspeed XG2010G 原厂 <code>/dev/mtd0</code> 的 signed U-Boot/FIP 启动镜像。</strong><br>
-  <sub>本仓库为社区非官方固件· 刷写有变砖风险，请先完整备份</sub>
+  <sub>本仓库为社区非官方固件 · 刷写有变砖风险，请先完整备份</sub>
 </p>
 
 <p align="center">
@@ -65,7 +65,6 @@
 
 - [🔗 启动链图](#-启动链图)
 - [🔑 BL2、BL31 与签名](#-bl2bl31-与签名)
-- [📜 证书产物](#-证书产物)
 - [📊 NAND 分区图](#-nand-分区图)
 
 **刷机与救砖**
@@ -87,15 +86,14 @@
 ## 📌 项目定位
 
 本仓库基于当前主线 U-Boot，加入 Brightspeed XG2010G 的 Airoha AN7581 类平台
-板级支持，用于替换原厂被限制功能的 `mtd0 bootloader`。这是社区维护的非官方固件项目，
-刷写 bootloader存在变砖风险，请自行评估并承担操作后果。
+板级支持，用于替换原厂被限制功能的 `mtd0 bootloader`。
+刷写 bootloader 存在变砖风险，请自行评估并承担操作后果。
 
 | 项目 | 当前约束 |
 | --- | --- |
 | 设备 | Brightspeed XG2010G |
 | 平台 | Airoha AN7581/AN7583 类启动链 |
 | bootloader 分区 | `0x00000000-0x00200000`，固定 2 MiB |
-| 系统分区 | `0x00600000-0x1be00000`，作为 UBI 区域 |
 | 工具版本 | TF-A tooling 固定为 `v2.13.0`，用于构建 `fiptool` 和 `cert_create` |
 
 XG2010G 的 `mtd0` 通常不是裸 `u-boot.bin`，而是一个从 BL2 开始验证的完整
@@ -110,10 +108,10 @@ signed mtd0/FIP。
 | 图标 | 特性 | 说明 |
 | --- | --- | --- |
 | 🧩 | 主线 U-Boot | 基于 U-Boot `2026.10-rc3` 主线，新增 XG2010G 板级 DTS 与 `xg2010g_defconfig` |
-| 🔐 | 设备强制启用 Trusted Boot ，自行编译请注意签名  |
+| 🔐 | 强制 Trusted Boot | 设备只接受 signed 镜像，自行编译须自行完成签名 |
 | 🧱 | mtd0 边界硬校验 | workflow 强制 mtd0 = `0x200000`（2 MiB），越界直接构建失败 |
 | 🧬 | 可追溯 BL2/BL31 | 内置前导区、BL2、BL31 均记录 SHA256，来自原厂镜像备份 |
-| 🔧 | 固定可复现工具链 | TF-A `v2.13.0` 固定 ref，`fiptool` / `cert_create`  |
+| 🔧 | 固定可复现工具链 | TF-A 锁定 `v2.13.0`，`fiptool` / `cert_create` 版本可复现 |
 | 🛟 | 双救砖路径 | BootROM X 模式 XMODEM 两段传输 + Web Recovery 重建 UBI |
 | 📦 | 完整交付物 | 每次构建附带 `sha256sums.txt` 与 `build-info.txt`（commit、日期、边界） |
 
@@ -129,7 +127,7 @@ signed mtd0/FIP。
 | 🟢 能进原厂 U-Boot / TTL，要替换 bootloader | `xg2010g-...-mtd0-signed.bin` | [TTL/TFTP 刷入](#-ttltftp-刷入-mtd0)，只擦写 `0x000000` 起 `0x200000` |
 | 🔴 mtd0 写坏、NAND 无法启动 | `ubi-preloader.bin` + `ubi-bl31-uboot.fip` | [X 模式 XMODEM 救砖](#-x-模式与-web-recovery)，再走 Web Recovery |
 | 🔵 只升级系统，不动 bootloader | `ubi-squashfs-sysupgrade.itb` | 只刷 `ubi` 区域（`0x00600000` 起，440 MiB），必须重建 UBI |
-| 🟡 本地开发 / 调试 | `u-boot.bin`（BL33 候选） | [本地构建](#-本地构建)，**不可**直接写入 `mtd0` |
+| 🟡 本地开发 / 调试 | `u-boot.bin`（BL33 候选） | [本地构建](#-本地构建)，产物仅用于调试 |
 
 **关键参数速查：**
 
@@ -140,7 +138,7 @@ signed mtd0/FIP。
 | `ubi` 区域 | 偏移 `0x00600000`，长度 `0x1b800000`（440 MiB） |
 | signed FIP 在 mtd0 内偏移 | `0x800` |
 | U-Boot 加载地址 | `0x81800000` |
-| TTL/TFTP 网段 | U-Boot `192.168.0.1`，电脑 `192.168.0.205/24` |
+| TTL/TFTP 网段 | U-Boot `192.168.0.1`，电脑 `192.168.0.205/24`（网线接设备 1G 口） |
 | Web Recovery | 无痕模式打开 `http://192.168.1.1/uboot.html`，必须勾选“先重建 UBI” |
 | 救砖文件 | `ubi-preloader.bin` + `ubi-bl31-uboot.fip`（XMODEM 两段） |
 
@@ -149,8 +147,8 @@ signed mtd0/FIP。
 ## 🔒 安全边界
 
 > [!WARNING]
-> `mtd0` 的正确长度是 `0x200000`，即 2 MiB。不要使用 其他擦写长度；
-> 会越过 `mtd0`、`uenv`、`dsd` 破坏系统区域。
+> `mtd0` 的正确长度是 `0x200000`，即 2 MiB。使用其他擦写长度会越过
+> `uenv`、`dsd`，破坏系统区域。
 
 > [!CAUTION]
 > 刷写 bootloader 前必须保存完整原厂备份，并确认 NAND 型号、页大小、
@@ -191,7 +189,7 @@ flowchart LR
 ## 🔑 BL2、BL31 与签名
 
 BL2 和 BL31 必须来自与设备硬件匹配的 Airoha 固件输入，
-或者来自完整可用的 Airoha TF-A/DDR 初始化源码和签名配置。
+或者来自 Airoha TF-A/DDR 初始化源码和签名配置。
 
 当前兼容方案：
 
@@ -229,32 +227,13 @@ flowchart LR
     class F,M,A out;
 ```
 
-仓库内置的最小启动输入来自
-`original-device-backup-20260816/mtd0-bootloader-stock.bin`：
-
-| 文件 | 说明 | SHA256 |
-| --- | --- | --- |
-| `board/airoha/xg2010g/firmware/mtd0-prefix.bin` | `mtd0` 中 FIP 前的 `0x800` 字节前导区 | `82830140f4f8842702d0569065c27071b7cc24e0876e6c487cb4d9d81c294dd7` |
-| `board/airoha/xg2010g/firmware/ubi-preloader.bin` | BL2/preloader 裸文件 | `6dfd08d05691cf2d89e0892b4e597a8d9a8ebab80a362c9b7a02868ffcddd1c8` |
-| `board/airoha/xg2010g/firmware/bl31.bin` | BL31/EL3 runtime firmware | `e79bb6960e71384a4f8b67be0d0cd0f64042b174b4e6b2502428238f548245f3` |
-
-这些文件只适用于匹配的 XG2010G 硬件、NAND、DDR 和安全启动策略。若板级修订
-不同，应从对应设备备份重新提取并覆盖 workflow 输入。
-
 <p align="right"><a href="#top"><b>↑ 返回顶部</b></a></p>
-
 
 ## 📊 NAND 分区图
 
-```mermaid
-pie showData
-    title XG2010G 512 MiB SLC NAND layout
-    "bootloader / mtd0" : 2
-    "uenv" : 2
-    "dsd" : 2
-    "ubi" : 440
-    "reserved_bmt" : 66
-```
+<p align="center">
+  <img width="380" alt="XG2010G 512 MiB NAND 单柱布局图（真实比例）" src="doc/board/airoha/xg2010g-nand-layout.svg">
+</p>
 
 ### 本项目目标边界
 
@@ -297,7 +276,7 @@ flowchart TD
     R --> P["ubi-preloader.bin<br/>XMODEM 第一段"]
     R --> F["ubi-bl31-uboot.fip<br/>XMODEM 第二段 / Web Recovery"]
     R --> S["sha256sums.txt<br/>校验所有产物"]
-    R --> U["u-boot-raw.bin<br/>仅调试，不直接刷 mtd0"]
+    R --> U["u-boot-raw.bin<br/>仅调试"]
 
     M --> T["TTL/TFTP 写入<br/>flash erase/write 0x200000"]
     P --> X["X 模式救砖"]
@@ -319,7 +298,7 @@ flowchart TD
 | `xg2010g-...-ubi-preloader.bin` | BL2/preloader 裸文件，用于 X 模式第一段 XMODEM |
 | `xg2010g-...-ubi-bl31-uboot.fip` | BL31 + U-Boot/BL33 FIP，用于 X 模式第二段 XMODEM 和 Web Recovery |
 | `xg2010g-...-bl31.bin` | BL31 裸文件，便于核对和离线调试 |
-| `xg2010g-...-u-boot-raw.bin` | 本次编译出的裸 U-Boot/BL33，不可直接写入 `mtd0` |
+| `xg2010g-...-u-boot-raw.bin` | 裸 U-Boot/BL33，仅供调试 |
 | `ubi-preloader.bin` | 不带版本号的 BL2/preloader，救砖时方便选择 |
 | `ubi-bl31-uboot.fip` | 不带版本号的 BL31 + U-Boot FIP，救砖时方便选择 |
 | `sha256sums.txt` | 所有产物 SHA256 |
@@ -347,15 +326,7 @@ CertUtil -hashfile xg2010g-...-mtd0-signed.bin SHA256
 适用于已经能进原厂 U-Boot/TTL 命令行，并且当前 bootloader 提供 Airoha
 `flash` 命令的情况。
 
-| 项目 | 值 |
-| --- | --- |
-| 电脑连接 | 网线连接设备 1G 口 |
-| 电脑 IP | `192.168.0.205/24` |
-| U-Boot IP | `192.168.0.1` |
-| 加载地址 | `0x81800000` |
-| 待刷文件 | `xg2010g-...-mtd0-signed.bin` |
-| 文件大小 | `2097152` 字节，也就是 `0x200000` |
-
+连接参数（网段、加载地址、待刷文件与大小）见[关键参数速查](#-快速开始tldr)。
 电脑运行 TFTP server，U-Boot 主动拉取：
 
 ```console
@@ -437,16 +408,15 @@ sequenceDiagram
 5. 传输完成后设备会自动重启。
 6. 再次断电，按住 <kbd>RESET</kbd> 键，同时通电启动。
 7. 提示 `Press x to load BL31 + U-Boot FIP` 时输入 <kbd>x</kbd>。
-8. 再次打开：文件 -> 传输 -> XMODEM -> 发送。
+8. 再次打开 XMODEM 发送。
 9. 发送 `xg2010g-...-ubi-bl31-uboot.fip` 或 `ubi-bl31-uboot.fip`。
-10. 第二段 XMODEM 进度到 100% 前提前按住 <kbd>RESET</kbd>，等待设备灯完成闪烁并进入流水式闪烁后再松开。
+10. 第二段 XMODEM 进度到 100% 前按住 <kbd>RESET</kbd>，等设备灯进入流水式闪烁后再松开。
 11. 浏览器使用无痕模式访问 `http://192.168.1.1/uboot.html`。
 12. 选择系统镜像 `ubi-squashfs-sysupgrade.itb`。
 13. `BL2` 选择 `xg2010g-...-ubi-preloader.bin` 或 `ubi-preloader.bin`。
 14. `U-Boot` 选择 `xg2010g-...-ubi-bl31-uboot.fip` 或 `ubi-bl31-uboot.fip`。
 15. 必须勾选“先重建 UBI”。
-16. 等待数分钟完成刷写。
-17. 刷写完成后务必断电重启设备。
+16. 等待数分钟完成刷写，之后务必断电重启设备。
 
 <p align="right"><a href="#top"><b>↑ 返回顶部</b></a></p>
 
@@ -487,12 +457,6 @@ reset
 - `console`、`sdram_conf`、`qdma_init`、`*_gpio`、`onu_type`、`country_code` 和
   `serdes_*` 建议保留，它们可能被原厂内核、Airoha 驱动或用户态脚本读取。
 
-`serdes_ethernet` 取值：
-
-| 值 | 含义 | 建议 |
-| --- | --- | --- |
-| `411` | 光口/PON 方向 | 上网 2.5G 正常，作为默认值 |
-| `421` | 网口方向 | 已知场景下 2.5G 网口不能用于上网，只建议临时调试 |
 
 <p align="right"><a href="#top"><b>↑ 返回顶部</b></a></p>
 
@@ -501,6 +465,17 @@ reset
 Web Recovery 刷写 `ubi-squashfs-sysupgrade.itb` 并勾选“先重建 UBI”后，正常
 启动应直接断电重启，不再按 <kbd>RESET</kbd>，让 U-Boot 执行迁移后的
 `bootcmd`。
+
+U-Boot 启动后会对 RESET GPIO 做确认：默认需要持续按住 3 秒才进入 Web
+Recovery，并在串口打印倒计时。中途松开会取消恢复并继续正常启动。可通过环境变量
+调整等待时间：
+
+```console
+setenv recovery_button_timeout 5
+saveenv
+```
+
+设置为 `0` 可恢复为检测到按键后立即进入恢复。
 
 <details>
 <summary>💾 保留原厂/legacy <code>tclinux</code> 回退命令（可选，点击展开）</summary>
@@ -582,7 +557,7 @@ adds XG2010G board files, documentation, and GitHub Actions packaging.
 <p align="center">
   <sub>
     Upstream <a href="https://github.com/u-boot/u-boot">U-Boot</a> (GPL-2.0+) · XG2010G board support by this project ·
-    与 Brightspeed / Airoha 无从属关系 · 刷机会变砖，操作前请完整备份原厂 <code>mtd0</code>
+    与 Brightspeed / Airoha 无从属关系
   </sub>
 </p>
 

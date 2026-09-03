@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="470" height="610" viewBox="0 0 470 610" role="img" aria-label="XG2010G 512 MiB SLC NAND single-column layout, 2 MiB partitions enlarged, all labels outside with leader lines">
+  <style>
+    text { font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; fill: #334155; }
+    @media (prefers-color-scheme: dark) {
+      text { fill: #94a3b8; }
+    }
+  </style>
+
+  <!-- title -->
+  <text x="235" y="20" text-anchor="middle" font-size="14" font-weight="600">XG2010G 512 MiB SLC NAND layout（2 MiB 分区放大显示）</text>
+
+  <!-- single column, top = 0x00000000, bottom = 0x20000000, bar x=115..265 (150px wide) -->
+  <!-- mtd0 2 MiB (enlarged to 40px): y36..76 -->
+  <rect x="115" y="36" width="150" height="40" fill="#0f766e"/>
+  <!-- uenv 2 MiB (enlarged to 40px): y76..116 -->
+  <rect x="115" y="76" width="150" height="40" fill="#1f6feb"/>
+  <!-- dsd 2 MiB (enlarged to 40px): y116..156 -->
+  <rect x="115" y="116" width="150" height="40" fill="#d97706"/>
+  <!-- ubi 440 MiB (relative proportion): y156..497 -->
+  <rect x="115" y="156" width="150" height="341" fill="#16a34a"/>
+  <!-- reserved_bmt 66 MiB (relative proportion): y497..548 -->
+  <rect x="115" y="497" width="150" height="51" fill="#64748b"/>
+
+  <!-- left address ticks -->
+  <line x1="105" y1="36" x2="113" y2="36" stroke="#64748b" stroke-width="1"/>
+  <text x="101" y="40" text-anchor="end" font-size="11">0x00000000</text>
+  <line x1="105" y1="76" x2="113" y2="76" stroke="#64748b" stroke-width="1"/>
+  <text x="101" y="80" text-anchor="end" font-size="11">0x00200000</text>
+  <line x1="105" y1="116" x2="113" y2="116" stroke="#64748b" stroke-width="1"/>
+  <text x="101" y="120" text-anchor="end" font-size="11">0x00400000</text>
+  <line x1="105" y1="156" x2="113" y2="156" stroke="#64748b" stroke-width="1"/>
+  <text x="101" y="160" text-anchor="end" font-size="11">0x00600000</text>
+  <line x1="105" y1="497" x2="113" y2="497" stroke="#64748b" stroke-width="1"/>
+  <text x="101" y="501" text-anchor="end" font-size="11">0x1be00000</text>
+  <line x1="105" y1="548" x2="113" y2="548" stroke="#64748b" stroke-width="1"/>
+  <text x="101" y="552" text-anchor="end" font-size="11">0x20000000</text>
+
+  <!-- right leader labels: all outside the bar -->
+  <polyline points="265,56 283,48" fill="none" stroke="#0f766e" stroke-width="1"/>
+  <text x="287" y="52" font-size="12">bootloader/mtd0 · 2 MiB</text>
+  <polyline points="265,96 283,96" fill="none" stroke="#1f6feb" stroke-width="1"/>
+  <text x="287" y="100" font-size="12">uenv · 2 MiB</text>
+  <polyline points="265,136 283,144" fill="none" stroke="#d97706" stroke-width="1"/>
+  <text x="287" y="148" font-size="12">dsd · 2 MiB</text>
+  <polyline points="265,326 283,326" fill="none" stroke="#16a34a" stroke-width="1"/>
+  <text x="287" y="330" font-size="12">ubi · 440 MiB</text>
+  <text x="287" y="346" font-size="10.5">0x00600000–0x1be00000</text>
+  <polyline points="265,522 283,522" fill="none" stroke="#64748b" stroke-width="1"/>
+  <text x="287" y="526" font-size="12">reserved_bmt · 66 MiB</text>
+
+  <!-- footnote -->
+  <text x="235" y="580" text-anchor="middle" font-size="11">mtd0 / uenv / dsd 各 2 MiB，放大至 40 px；ubi 与 reserved_bmt 保持 440 : 66 真实比例</text>
+</svg>
