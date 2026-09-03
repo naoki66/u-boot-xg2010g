@@ -81,7 +81,8 @@ Release Asset 或其它受控下载源，并用 SHA256 变量锁定内容。
 如果 Trusted Boot 私钥曾经出现在聊天、日志、工单或公开位置，应视为已经
 泄露，建议立即轮换，并只把新私钥写入 `XG2010G_TB_PRIVATE_KEY` Secret。
 
-签名输入齐全时，Actions artifact 会同时包含以下文件：
+每次 Actions 构建都会上传 `u-boot.bin` 和同内容的 `...-u-boot-raw.bin` /
+`u-boot-raw.bin`。签名输入齐全时，artifact 还会同时包含以下文件：
 
 | 文件 | 用途 |
 | --- | --- |
@@ -90,7 +91,7 @@ Release Asset 或其它受控下载源，并用 SHA256 变量锁定内容。
 | `...-ubi-preloader.bin` | BL2/preloader 裸文件，用于 X 模式第一段 XMODEM |
 | `...-ubi-bl31-uboot.fip` | BL31 + U-Boot/BL33 FIP，用于 X 模式第二段 XMODEM |
 | `...-bl31.bin` | BL31 裸文件，便于核对和离线调试 |
-| `...-u-boot-raw.bin` | 本仓库本次编译出的 U-Boot/BL33 裸文件 |
+| `...-u-boot-raw.bin` | 本仓库本次编译出的 U-Boot/BL33 裸文件，普通构建也会生成 |
 | `sha256sums.txt` | 所有产物的 SHA256 校验值 |
 
 artifact 内也保留不带版本号的 `ubi-preloader.bin`、`ubi-bl31-uboot.fip`、

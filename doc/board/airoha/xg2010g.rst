@@ -193,7 +193,9 @@ Asset，并用 SHA256 变量校验。
 如果 Trusted Boot 私钥曾出现在聊天、日志、工单或其它非密钥管理系统中，
 应视为已经泄露；继续制作可刷写 bootloader 前，应轮换为新私钥。
 
-签名输入齐全时，Actions artifact 会额外生成救砖和调试用文件：
+每次 Actions 构建都会上传 ``u-boot.bin`` 和同内容的
+``...-u-boot-raw.bin`` / ``u-boot-raw.bin``。签名输入齐全时，artifact
+还会额外生成救砖和调试用文件：
 
 .. list-table::
    :header-rows: 1
@@ -212,7 +214,7 @@ Asset，并用 SHA256 变量校验。
    * - ``...-bl31.bin``
      - BL31 裸文件，便于核对和离线调试
    * - ``...-u-boot-raw.bin``
-     - 本仓库本次编译出的 U-Boot/BL33 裸文件
+     - 本仓库本次编译出的 U-Boot/BL33 裸文件，普通构建也会生成
    * - ``sha256sums.txt``
      - 所有产物的 SHA256 校验值
 

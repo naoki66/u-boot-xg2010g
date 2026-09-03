@@ -473,10 +473,12 @@ jobs:
           fip_name=""
           preloader_name=""
           recovery_fip_name=""
-          uboot_raw_name=""
+          uboot_raw_name="xg2010g-${RELEASE_DATE}-${COMMIT_SHORT}-u-boot-raw.bin"
           mkdir -p build-output
 
           cp u-boot.bin build-output/
+          cp u-boot.bin "build-output/${uboot_raw_name}"
+          cp u-boot.bin build-output/u-boot-raw.bin
           cp u-boot.img build-output/ 2>/dev/null || true
           cp u-boot.dtb build-output/ 2>/dev/null || true
           cp tools/mkimage build-output/ 2>/dev/null || true
@@ -488,16 +490,13 @@ jobs:
             preloader_name="xg2010g-${RELEASE_DATE}-${COMMIT_SHORT}-ubi-preloader.bin"
             recovery_fip_name="xg2010g-${RELEASE_DATE}-${COMMIT_SHORT}-ubi-bl31-uboot.fip"
             bl31_name="xg2010g-${RELEASE_DATE}-${COMMIT_SHORT}-bl31.bin"
-            uboot_raw_name="xg2010g-${RELEASE_DATE}-${COMMIT_SHORT}-u-boot-raw.bin"
             cp out/mtd0-bootloader-xg2010g-signed.bin "build-output/${mtd0_name}"
             cp out/fip-xg2010g-signed.bin "build-output/${fip_name}"
             cp signing/bl2.bin "build-output/${preloader_name}"
             cp signing/bl31.bin "build-output/${bl31_name}"
-            cp u-boot.bin "build-output/${uboot_raw_name}"
             cp out/ubi-bl31-uboot.fip "build-output/${recovery_fip_name}"
             cp signing/bl2.bin build-output/ubi-preloader.bin
             cp signing/bl31.bin build-output/bl31.bin
-            cp u-boot.bin build-output/u-boot-raw.bin
             cp out/ubi-bl31-uboot.fip build-output/ubi-bl31-uboot.fip
             cp out/fip-info.txt build-output/
             cp out/ubi-bl31-uboot-fip-info.txt build-output/
@@ -518,13 +517,13 @@ jobs:
             echo "mtd0 size: ${MTD0_SIZE}"
             echo "FIP offset: ${FIP_OFFSET}"
             echo "FIP alignment: ${FIP_ALIGN}"
+            echo "Raw U-Boot/BL33: ${uboot_raw_name}"
             if [ "$signed_mtd0" = "true" ]; then
               echo "mtd0 image: ${mtd0_name}"
               echo "FIP image: ${fip_name}"
               echo "Recovery BL2/preloader: ${preloader_name}"
               echo "Recovery BL31+U-Boot FIP: ${recovery_fip_name}"
               echo "Raw BL31: ${bl31_name}"
-              echo "Raw U-Boot/BL33: ${uboot_raw_name}"
               echo "Certificate chain: BL2 tb-fw, BL31 soc-fw, U-Boot BL33 nt-fw"
             else
               echo "mtd0 image: not generated because signing inputs were not complete"
