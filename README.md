@@ -2,16 +2,32 @@
 
 <a id="top"></a>
 
+<h1 align="center">Brightspeed XG2010G U-Boot Bootloader</h1>
+
+<p align="center">
+  <strong>用于替换 Brightspeed XG2010G 原厂 <code>/dev/mtd0</code> 的 signed U-Boot/FIP 启动镜像。</strong><br>
+  <sub>社区非官方固件 · 与 Brightspeed / Airoha 无从属关系 · 刷写有变砖风险，请先完整备份</sub>
+</p>
+
 <p align="center">
   <img alt="Target: Brightspeed XG2010G" src="https://img.shields.io/badge/Target-Brightspeed%20XG2010G-0f766e?style=for-the-badge">
   <img alt="SoC: Airoha AN7581 class" src="https://img.shields.io/badge/SoC-Airoha%20AN7581%20class-1f6feb?style=for-the-badge">
   <img alt="NAND: 512 MiB SLC" src="https://img.shields.io/badge/NAND-512%20MiB%20SLC-7c3aed?style=for-the-badge">
 </p>
 
-<h1 align="center">Brightspeed XG2010G U-Boot Bootloader</h1>
-
 <p align="center">
-  <strong>用于替换 Brightspeed XG2010G 原厂 <code>/dev/mtd0</code> 的 signed U-Boot/FIP 启动镜像。</strong>
+  <a href="https://github.com/naoki66/u-boot-xg2010g/releases">
+    <img alt="Download" src="https://img.shields.io/badge/Download-Latest%20signed%20mtd0-0f766e?style=for-the-badge&logo=github">
+  </a>
+  <a href="https://github.com/naoki66/u-boot-xg2010g/actions/workflows/build-mtd0.yml">
+    <img alt="CI Build" src="https://img.shields.io/badge/Actions-CI%20Build-1f6feb?style=for-the-badge&logo=githubactions&logoColor=white">
+  </a>
+  <a href="doc/board/airoha/xg2010g.rst">
+    <img alt="Board manual" src="https://img.shields.io/badge/Docs-board%20manual-7c3aed?style=for-the-badge&logo=readthedocs&logoColor=white">
+  </a>
+  <a href="board/airoha/xg2010g/firmware/README.md">
+    <img alt="Firmware blobs" src="https://img.shields.io/badge/Firmware-BL2%2FBL31%20blobs-d97706?style=for-the-badge">
+  </a>
 </p>
 
 <p align="center">
@@ -24,32 +40,13 @@
   <a href="https://github.com/naoki66/u-boot-xg2010g/releases">
     <img alt="Downloads" src="https://img.shields.io/github/downloads/naoki66/u-boot-xg2010g/total?label=downloads">
   </a>
-  <img alt="Last commit" src="https://img.shields.io/github/last-commit/naoki66/u-boot-xg2010g?label=last%20commit">
   <img alt="U-Boot 2026.10-rc3 mainline" src="https://img.shields.io/badge/U--Boot-2026.10--rc3%20mainline-0f766e">
-  <img alt="TF-A tooling v2.13.0" src="https://img.shields.io/badge/TF--A%20tooling-v2.13.0-1f6feb">
-  <img alt="Architecture aarch64" src="https://img.shields.io/badge/arch-aarch64-aa6400?logo=arm&logoColor=white">
   <img alt="License GPL-2.0+" src="https://img.shields.io/badge/license-GPL--2.0%2B-2ea043">
-  <img alt="Signed artifacts only" src="https://img.shields.io/badge/artifacts-signed%20only-c2410c">
-</p>
-
-<p align="center">
-  <a href="https://github.com/naoki66/u-boot-xg2010g/releases">
-    <img alt="Latest Release" src="https://img.shields.io/badge/Releases-Latest-0f766e?style=for-the-badge&logo=github">
-  </a>
-  <a href="https://github.com/naoki66/u-boot-xg2010g/actions/workflows/build-mtd0.yml">
-    <img alt="CI Actions" src="https://img.shields.io/badge/Actions-CI%20Build-1f6feb?style=for-the-badge&logo=githubactions&logoColor=white">
-  </a>
-  <a href="doc/board/airoha/xg2010g.rst">
-    <img alt="Board manual" src="https://img.shields.io/badge/Docs-board%20manual-7c3aed?style=for-the-badge&logo=readthedocs&logoColor=white">
-  </a>
-  <a href="board/airoha/xg2010g/firmware/README.md">
-    <img alt="Firmware blobs" src="https://img.shields.io/badge/Firmware-BL2%2FBL31%20blobs-d97706?style=for-the-badge">
-  </a>
 </p>
 
 <p align="center">
   <sub>
-    mtd0 固定 2 MiB · BL2/BL31 来自匹配原厂备份 · U-Boot 作为 BL33 · GitHub Actions 强制 Trusted Boot 签名
+    mtd0 固定 2 MiB · BL2/BL31 来自匹配原厂备份 · U-Boot 作为 BL33 · 仅产出 signed artifact
   </sub>
 </p>
 
@@ -78,6 +75,7 @@
 - [🆘 X 模式与 Web Recovery](#-x-模式与-web-recovery)
 - [🔄 首启环境迁移](#-首启环境迁移)
 - [✅ 正常引导与回退](#-正常引导与回退)
+- [🧯 常见问题排查](#-常见问题排查)
 
 **构建与法律**
 
@@ -89,7 +87,9 @@
 ## 📌 项目定位
 
 本仓库基于当前主线 U-Boot，加入 Brightspeed XG2010G 的 Airoha AN7581 类平台
-板级支持，用于替换原厂被限制功能的 `mtd0 bootloader`。
+板级支持，用于替换原厂被限制功能的 `mtd0 bootloader`。这是社区维护的
+非官方固件项目，与 Brightspeed、Airoha 无任何从属关系；刷写 bootloader
+存在变砖风险，请自行评估并承担操作后果。
 
 | 项目 | 当前约束 |
 | --- | --- |
@@ -134,15 +134,19 @@ signed mtd0/FIP。
 | 🔵 只升级系统，不动 bootloader | `ubi-squashfs-sysupgrade.itb` | 只刷 `ubi` 区域（`0x00600000` 起，440 MiB），必须重建 UBI |
 | 🟡 本地开发 / 调试 | `u-boot.bin`（BL33 候选） | [本地构建](#-本地构建)，**不可**直接写入 `mtd0` |
 
-**关键约束卡片：**
+**关键参数速查：**
 
-| 图标 | 操作 | 关键点 |
-| --- | --- | --- |
-| 🔐 | 签名构建 | Actions 强制使用 `XG2010G_TB_PRIVATE_KEY`，不上传未签名 bootloader |
-| 🧱 | mtd0 边界 | 只写 `0x00000000-0x00200000`，长度必须是 `0x200000` |
-| 🧭 | 系统区域 | 后续系统只刷 `0x00600000-0x1be00000` 的 `ubi` 区域 |
-| 🛟 | 救砖路径 | X 模式通过 XMODEM 发送 `ubi-preloader.bin` 和 `ubi-bl31-uboot.fip` |
-| 🌐 | Web Recovery | 无痕模式访问 `http://192.168.1.1/uboot.html`，必须勾选“先重建 UBI” |
+| 参数 | 值 |
+| --- | --- |
+| `mtd0` 偏移 / 长度 | `0x00000000` / `0x200000`（2 MiB，擦写长度禁止超过此值） |
+| `uenv` / `dsd` | 分别从 `0x00200000` / `0x00400000` 起，各 2 MiB，默认保留 |
+| `ubi` 区域 | 偏移 `0x00600000`，长度 `0x1b800000`（440 MiB） |
+| signed FIP 在 mtd0 内偏移 | `0x800` |
+| U-Boot 加载地址 | `0x81800000` |
+| TTL/TFTP 网段 | U-Boot `192.168.0.1`，电脑 `192.168.0.205/24` |
+| Web Recovery | 无痕模式打开 `http://192.168.1.1/uboot.html`，必须勾选“先重建 UBI” |
+| 救砖文件 | `ubi-preloader.bin` + `ubi-bl31-uboot.fip`（XMODEM 两段） |
+| 签名私钥 | 仅存 GitHub Secret `XG2010G_TB_PRIVATE_KEY` |
 
 <p align="right"><a href="#top"><b>↑ 返回顶部</b></a></p>
 
@@ -552,6 +556,19 @@ reboot
 
 <p align="right"><a href="#top"><b>↑ 返回顶部</b></a></p>
 
+## 🧯 常见问题排查
+
+| 症状 | 可能原因 | 处理 |
+| --- | --- | --- |
+| 自动启动停在 `Unknown command 'flash'` | 还在用原厂 `bootcmd`，未迁移环境 | 按[首启环境迁移](#-首启环境迁移)执行一次 `setenv`/`saveenv` |
+| `tftpboot` 超时 / 下载失败 | IP 不对、TFTP 被防火墙拦截、网线没接 1G 口 | 确认电脑为 `192.168.0.205/24`、TFTP server 已运行并放行、网线接设备 1G 口 |
+| `filesize` 不是 `0x200000` 或 CRC 与发布值不符 | 文件下载不完整或拿错产物 | 用 Release 内 `sha256sums.txt` 校验，重新下载 `mtd0-signed.bin` |
+| 第二段 XMODEM 后进不了 Web Recovery | <kbd>RESET</kbd> 时序不对 | 传输 100% 前按住 <kbd>RESET</kbd>，等流水灯亮起再松开，无痕模式访问 |
+| 刷完系统后 2.5G 电口不能上网 | `serdes_ethernet` 方向配置为网口 | 保持默认 `411`（光口/PON）；`421` 仅作临时调试 |
+| 想临时回原厂系统 | 之前保存过 `bootcmd_stock` | 见[正常引导与回退](#-正常引导与回退)中的 legacy 回退命令 |
+
+<p align="right"><a href="#top"><b>↑ 返回顶部</b></a></p>
+
 ## 🔧 本地构建
 
 推荐在 WSL/Linux 文件系统中构建，或用 `git archive` 导出临时构建副本，避免
@@ -587,7 +604,8 @@ adds XG2010G board files, documentation, and GitHub Actions packaging.
 
 <p align="center">
   <sub>
-    Upstream <a href="https://github.com/u-boot/u-boot">U-Boot</a> (GPL-2.0+) · XG2010G board support by this project · 刷机会变砖，操作前请完整备份原厂 <code>mtd0</code>
+    Upstream <a href="https://github.com/u-boot/u-boot">U-Boot</a> (GPL-2.0+) · XG2010G board support by this project ·
+    与 Brightspeed / Airoha 无从属关系 · 刷机会变砖，操作前请完整备份原厂 <code>mtd0</code>
   </sub>
 </p>
 
