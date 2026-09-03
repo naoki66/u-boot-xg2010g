@@ -487,8 +487,6 @@ jobs:
           cp out/ubi-bl31-uboot.fip build-output/ubi-bl31-uboot.fip
           cp out/fip-info.txt build-output/
           cp out/ubi-bl31-uboot-fip-info.txt build-output/
-          cp certs/*.crt build-output/
-
           {
             echo "Build date: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
             echo "Repository: ${GITHUB_REPOSITORY}"
@@ -510,6 +508,7 @@ jobs:
             echo "Recovery BL31+U-Boot FIP: ${recovery_fip_name}"
             echo "Raw BL31: ${bl31_name}"
             echo "Certificate chain: BL2 tb-fw, BL31 soc-fw, U-Boot BL33 nt-fw"
+            echo "Certificate files: generated during signing, not uploaded"
           } > build-output/build-info.txt
 
           sums_file=$(mktemp)

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-2.0+
+
 # XG2010G U-Boot 说明
 
 本仓库基于上游 U-Boot，加入 XG2010G 的 Airoha AN7581 类平台板级配置。
@@ -115,6 +117,59 @@ Release Asset 或其它受控下载源，并用 SHA256 变量锁定内容。
 artifact 内也保留不带版本号的 `ubi-preloader.bin`、`ubi-bl31-uboot.fip`、
 `bl31.bin` 和 `u-boot-raw.bin`，方便救砖时直接选择文件。
 
+## 证书产物
+
+签名过程中会临时生成 `trusted_key.crt`、`tb_fw.crt`、`tb_fw_key.crt`、
+`soc_fw.crt`、`soc_fw_key.crt`、`nt_fw.crt` 和 `nt_fw_key.crt`。这些是
+TF-A `cert_create` 生成的 X.509 证书链/内容证书，用来把 BL2、BL31、
+U-Boot/BL33 的哈希、公钥关系和 NV counter 等元数据写入 signed FIP。
+
+这些 `.crt` 不是私钥，也不应包含 `XG2010G_TB_PRIVATE_KEY` 的私钥内容；
+但单独的 `.crt` 文件会暴露证书链结构、公钥材料、镜像哈希和构建元数据，对
+最终刷机也不是必需文件。signed FIP/mtd0 内部仍会包含启动验证必需的证书内容，
+这是 Trusted Boot 启动链的一部分。因此 workflow 只在签名过程中临时生成单独
+`.crt` 文件，不上传到 workflow artifact，也不上传到 GitHub Releases。
+
+## TTL/TFTP 刷入 mtd0
+
+该流程适用于已经能进原厂 U-Boot/TTL 命令行，并且当前 bootloader 提供
+Airoha `flash` 命令的情况。电脑网线连接 1G 口，电脑 IP 设置为
+`192.168.0.205/24`，U-Boot 侧设备 IP 使用 `192.168.0.1`。待刷文件必须是
+Release 中完整 2 MiB 的 `...-mtd0-signed.bin`。
+
+推荐电脑运行 TFTP server，U-Boot 主动拉取文件：
+
+```console
+setenv ipaddr 192.168.0.1
+setenv serverip 192.168.0.205
+setenv loadaddr 0x81800000
+tftpboot ${loadaddr} xg2010g-...-mtd0-signed.bin
+echo ${filesize}
+crc32 ${loadaddr} ${filesize}
+```
+
+确认 `filesize` 为 `200000` 或 `0x200000` 后，只擦写 mtd0 的 2 MiB：
+
+```console
+flash erase 0x000000 0x200000
+flash write 0x000000 0x200000 0x81800000
+reset
+```
+
+原厂/Airoha `flash` 参数顺序是 `flash erase [addr] [len]` 和
+`flash write [dst] [len] *[src]`。因此写入 mtd0 时，目的地址是
+`0x000000`，长度是 `0x200000`，来源内存地址是 `0x81800000`。不要使用
+`0x2000000`，那是 32 MiB，会覆盖 mtd0 后面的分区。
+
+如果当前 bootloader 处在 TFTP receive/server 模式，电脑侧可能需要执行：
+
+```console
+tftp -i 192.168.0.1 put image.ub
+```
+
+这种情况下也应发送同一个 signed mtd0 产物；`image.ub` 只能作为传输文件名
+示例，不能把系统镜像 `image.ub` 当 bootloader 写入 mtd0。
+
 ## X 模式救砖
 
 如果 mtd0 写坏导致 NAND 不能正常启动，Airoha BootROM 通常仍可进入
@@ -149,6 +204,39 @@ artifact 内也保留不带版本号的 `ubi-preloader.bin`、`ubi-bl31-uboot.fi
 
 注意：`bootext.ram` 属于平台救援链文件，不由本仓库的 U-Boot 编译生成；
 需要保留已验证可用的原厂/平台版本。
+
+## 正常引导系统
+
+Web Recovery 刷写 `ubi-squashfs-sysupgrade.itb` 并勾选“先重建 UBI”后，正常
+启动应直接断电重启，不再按 `RESET`，让 U-Boot 按默认环境启动系统。
+
+如果需要恢复原厂/legacy `tclinux` 引导环境，可在 TTL 中断后参考以下命令。
+这些命令会写入 `uenv`，请先确认当前环境已备份：
+
+```console
+setenv bootflag 0
+setenv one flash read 0x602100 0x4000000 $loadaddr
+setenv two "; bootm"
+setenv bootcmd "$one$two"
+setenv one
+setenv two
+setenv bootargs 'sdram_conf=0x00108893 vendor_name=ECONET Technologies Corp. product_name=xPON ONU ubi.mtd=system ethaddr=00:AA:BB:01:23:40 snmp_sysobjid=1.2.3.4.5 country_code=ff ether_gpio=0c power_gpio=1515 dsl_gpio=0b internet_gpio=02 multi_upgrade_gpio=0b020400000000000000000000000000 onu_type=61 qdma_init=69bb root=/dev/mtdblock4 ro console=ttyS0,115200n8 earlycon bootflag=0 serdes_sel=0 serdes_pon=000 serdes_ethernet=411 serdes_wifi1=005 serdes_wifi2=413 serdes_usb1=111 serdes_usb2=000 tclinux_info=0x1fc4d8b,0x5724,0x36101e,0x366840,0x3000000,0x0,0x2000,0x0,0x2000,0x0'
+setenv serdes_ethernet 411
+saveenv
+reset
+```
+
+`serdes_ethernet=411` 是光口/PON 方向，上网 2.5G 正常；`421` 是网口方向，
+已知场景下 2.5G 网口不能用于上网，不建议作为默认值。
+
+如果系统已经启动到 OpenWrt/failsafe，需要清理 overlay 或重新设置密码，可用：
+
+```console
+rm -rf /overlay
+mount_root
+passwd
+reboot
+```
 
 ## 构建
 
