@@ -193,6 +193,69 @@ Asset，并用 SHA256 变量校验。
 如果 Trusted Boot 私钥曾出现在聊天、日志、工单或其它非密钥管理系统中，
 应视为已经泄露；继续制作可刷写 bootloader 前，应轮换为新私钥。
 
+签名输入齐全时，Actions artifact 会额外生成救砖和调试用文件：
+
+.. list-table::
+   :header-rows: 1
+   :widths: 35 65
+
+   * - 文件
+     - 用途
+   * - ``...-mtd0-signed.bin``
+     - 完整 2 MiB ``/dev/mtd0`` bootloader 镜像，包含前导区、BL2、BL31、证书和 U-Boot/BL33
+   * - ``...-fip-signed.bin``
+     - 放入 mtd0 ``0x800`` 偏移的完整 signed FIP
+   * - ``...-ubi-preloader.bin``
+     - BL2/preloader 裸文件，用于 X 模式第一段 XMODEM
+   * - ``...-ubi-bl31-uboot.fip``
+     - BL31 + U-Boot/BL33 FIP，用于 X 模式第二段 XMODEM
+   * - ``...-bl31.bin``
+     - BL31 裸文件，便于核对和离线调试
+   * - ``...-u-boot-raw.bin``
+     - 本仓库本次编译出的 U-Boot/BL33 裸文件
+   * - ``sha256sums.txt``
+     - 所有产物的 SHA256 校验值
+
+artifact 内也保留不带版本号的 ``ubi-preloader.bin``、
+``ubi-bl31-uboot.fip``、``bl31.bin`` 和 ``u-boot-raw.bin``，方便救砖时
+直接选择文件。
+
+X 模式救砖
+----------
+
+如果 mtd0 写坏导致 NAND 不能正常启动，Airoha BootROM 通常仍可进入串口
+X 模式加载临时引导。该流程需要 TTL 串口和支持 XMODEM 的终端工具。
+
+首次使用救砖链时，可能需要先加载一次 ``bootext.ram``：
+
+1. 断电。
+2. 按住 ``RESET`` 键，同时通电启动。
+3. 终端显示 ``CCCC`` 时表示设备已进入 X 模式。
+4. 在终端菜单中选择“文件 -> 传输 -> XMODEM -> 发送”。
+5. 选择 ``bootext.ram``，等待传输完成。之后通常不再需要重复加载该文件。
+
+正式刷机步骤如下：
+
+1. TTL 进入救砖模式：断电后按住 ``RESET`` 键，同时通电启动；按 ``X``/``x``，
+   终端显示 ``CCCC`` 后进入 XMODEM 接收。
+2. 传输 BL2/preloader：选择“文件 -> 传输 -> XMODEM -> 发送”，发送
+   Actions 产物中的 ``...-ubi-preloader.bin`` 或 ``ubi-preloader.bin``。
+   传输完成后设备会自动重启。
+3. 再次进入 X 模式：重新断电，按住 ``RESET`` 后通电；提示
+   ``Press x to load BL31 + U-Boot FIP`` 时输入 ``x``。
+4. 传输 BL31 + U-Boot FIP：再次选择“文件 -> 传输 -> XMODEM -> 发送”，
+   发送 ``...-ubi-bl31-uboot.fip`` 或 ``ubi-bl31-uboot.fip``。
+5. 关键时序：第二段 XMODEM 进度到 100% 前提前按住 ``RESET``，等待设备灯
+   完成闪烁并进入流水式闪烁后再松开。
+6. 浏览器使用无痕模式访问 ``http://192.168.1.1/uboot.html``。
+7. 选择 ``ubi-squashfs-sysupgrade.itb``；``BL2`` 选择
+   ``...-ubi-preloader.bin``，``U-Boot`` 选择 ``...-ubi-bl31-uboot.fip``。
+8. 必须勾选“先重建 UBI”，等待数分钟完成刷写。
+9. 刷写完成后务必断电重启设备。
+
+``bootext.ram`` 属于平台救援链文件，不由本仓库的 U-Boot 编译生成；需要
+保留已验证可用的原厂/平台版本。
+
 建议的验证顺序
 --------------
 

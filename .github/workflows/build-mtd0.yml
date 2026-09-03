@@ -50,13 +50,17 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       artifact_name: ${{ steps.artifact.outputs.artifact_name }}
+      bl31_name: ${{ steps.artifact.outputs.bl31_name }}
       build_mode: ${{ steps.mode.outputs.value }}
       commit: ${{ steps.version.outputs.commit }}
       fip_name: ${{ steps.artifact.outputs.fip_name }}
       mtd0_name: ${{ steps.artifact.outputs.mtd0_name }}
+      preloader_name: ${{ steps.artifact.outputs.preloader_name }}
       release_date: ${{ steps.version.outputs.release_date }}
+      recovery_fip_name: ${{ steps.artifact.outputs.recovery_fip_name }}
       signed_mtd0: ${{ steps.artifact.outputs.signed_mtd0 }}
       tag: ${{ steps.artifact.outputs.tag }}
+      uboot_raw_name: ${{ steps.artifact.outputs.uboot_raw_name }}
 
     steps:
       - name: Checkout U-Boot
@@ -394,6 +398,19 @@ jobs:
 
           "$FIPTOOL" info out/fip-xg2010g-signed.bin | tee out/fip-info.txt
 
+          "$FIPTOOL" create \
+            --align "$FIP_ALIGN" \
+            --soc-fw signing/bl31.bin \
+            --nt-fw u-boot.bin \
+            --trusted-key-cert certs/trusted_key.crt \
+            --soc-fw-key-cert certs/soc_fw_key.crt \
+            --nt-fw-key-cert certs/nt_fw_key.crt \
+            --soc-fw-cert certs/soc_fw.crt \
+            --nt-fw-cert certs/nt_fw.crt \
+            out/ubi-bl31-uboot.fip
+
+          "$FIPTOOL" info out/ubi-bl31-uboot.fip | tee out/ubi-bl31-uboot-fip-info.txt
+
       - name: Compose 2 MiB mtd0 image
         if: ${{ steps.signing.outputs.ready == 'true' }}
         env:
@@ -451,8 +468,12 @@ jobs:
           fi
 
           artifact_name="xg2010g-u-boot-${DATE_STAMP}-${COMMIT_SHORT}"
+          bl31_name=""
           mtd0_name=""
           fip_name=""
+          preloader_name=""
+          recovery_fip_name=""
+          uboot_raw_name=""
           mkdir -p build-output
 
           cp u-boot.bin build-output/
@@ -464,9 +485,22 @@ jobs:
             artifact_name="xg2010g-mtd0-${DATE_STAMP}-${COMMIT_SHORT}"
             mtd0_name="xg2010g-${RELEASE_DATE}-${COMMIT_SHORT}-mtd0-signed.bin"
             fip_name="xg2010g-${RELEASE_DATE}-${COMMIT_SHORT}-fip-signed.bin"
+            preloader_name="xg2010g-${RELEASE_DATE}-${COMMIT_SHORT}-ubi-preloader.bin"
+            recovery_fip_name="xg2010g-${RELEASE_DATE}-${COMMIT_SHORT}-ubi-bl31-uboot.fip"
+            bl31_name="xg2010g-${RELEASE_DATE}-${COMMIT_SHORT}-bl31.bin"
+            uboot_raw_name="xg2010g-${RELEASE_DATE}-${COMMIT_SHORT}-u-boot-raw.bin"
             cp out/mtd0-bootloader-xg2010g-signed.bin "build-output/${mtd0_name}"
             cp out/fip-xg2010g-signed.bin "build-output/${fip_name}"
+            cp signing/bl2.bin "build-output/${preloader_name}"
+            cp signing/bl31.bin "build-output/${bl31_name}"
+            cp u-boot.bin "build-output/${uboot_raw_name}"
+            cp out/ubi-bl31-uboot.fip "build-output/${recovery_fip_name}"
+            cp signing/bl2.bin build-output/ubi-preloader.bin
+            cp signing/bl31.bin build-output/bl31.bin
+            cp u-boot.bin build-output/u-boot-raw.bin
+            cp out/ubi-bl31-uboot.fip build-output/ubi-bl31-uboot.fip
             cp out/fip-info.txt build-output/
+            cp out/ubi-bl31-uboot-fip-info.txt build-output/
             cp certs/*.crt build-output/
           fi
 
@@ -487,6 +521,10 @@ jobs:
             if [ "$signed_mtd0" = "true" ]; then
               echo "mtd0 image: ${mtd0_name}"
               echo "FIP image: ${fip_name}"
+              echo "Recovery BL2/preloader: ${preloader_name}"
+              echo "Recovery BL31+U-Boot FIP: ${recovery_fip_name}"
+              echo "Raw BL31: ${bl31_name}"
+              echo "Raw U-Boot/BL33: ${uboot_raw_name}"
               echo "Certificate chain: BL2 tb-fw, BL31 soc-fw, U-Boot BL33 nt-fw"
             else
               echo "mtd0 image: not generated because signing inputs were not complete"
@@ -499,10 +537,14 @@ jobs:
 
           {
             echo "artifact_name=${artifact_name}"
+            echo "bl31_name=${bl31_name}"
             echo "signed_mtd0=${signed_mtd0}"
             echo "mtd0_name=${mtd0_name}"
             echo "fip_name=${fip_name}"
+            echo "preloader_name=${preloader_name}"
+            echo "recovery_fip_name=${recovery_fip_name}"
             echo "tag=${RELEASE_DATE}-${COMMIT_SHORT}"
+            echo "uboot_raw_name=${uboot_raw_name}"
           } >> "$GITHUB_OUTPUT"
 
           ls -la build-output
@@ -532,18 +574,26 @@ jobs:
 
       - name: Create or update GitHub Release
         env:
+          BL31_NAME: ${{ needs.build.outputs.bl31_name }}
           FIP_NAME: ${{ needs.build.outputs.fip_name }}
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MTD0_NAME: ${{ needs.build.outputs.mtd0_name }}
+          PRELOADER_NAME: ${{ needs.build.outputs.preloader_name }}
+          RECOVERY_FIP_NAME: ${{ needs.build.outputs.recovery_fip_name }}
           RELEASE_MODE: ${{ needs.build.outputs.build_mode }}
           RELEASE_TAG: ${{ needs.build.outputs.tag }}
           RELEASE_TITLE: XG2010G signed mtd0-${{ needs.build.outputs.release_date }}-g${{ needs.build.outputs.commit }}
+          UBOOT_RAW_NAME: ${{ needs.build.outputs.uboot_raw_name }}
         run: |
           set -euo pipefail
           mtd0_path="release-output/${MTD0_NAME}"
           fip_path="release-output/${FIP_NAME}"
-          for file in "$mtd0_path" "$fip_path" release-output/sha256sums.txt release-output/build-info.txt; do
+          preloader_path="release-output/${PRELOADER_NAME}"
+          recovery_fip_path="release-output/${RECOVERY_FIP_NAME}"
+          bl31_path="release-output/${BL31_NAME}"
+          uboot_raw_path="release-output/${UBOOT_RAW_NAME}"
+          for file in "$mtd0_path" "$fip_path" "$preloader_path" "$recovery_fip_path" "$bl31_path" "$uboot_raw_path" release-output/sha256sums.txt release-output/build-info.txt; do
             if [ ! -f "$file" ]; then
               echo "Release asset not found: $file" >&2
               exit 1
@@ -560,6 +610,10 @@ jobs:
 
           - \`${MTD0_NAME}\` - 2 MiB \`/dev/mtd0\` bootloader image. Contains preserved prefix, BL2, BL31, signed certificates, and this repository's U-Boot as BL33.
           - \`${FIP_NAME}\` - signed FIP only, placed at the configured mtd0 FIP offset.
+          - \`${PRELOADER_NAME}\` - BL2/preloader raw file for XMODEM recovery.
+          - \`${RECOVERY_FIP_NAME}\` - BL31 + U-Boot FIP for the second XMODEM recovery transfer.
+          - \`${BL31_NAME}\` - raw BL31 extracted from the trusted input.
+          - \`${UBOOT_RAW_NAME}\` - raw U-Boot/BL33 from this build.
           - \`sha256sums.txt\` - SHA256 checksums for all artifacts.
 
           ## Flash boundary
@@ -600,6 +654,10 @@ jobs:
           gh release upload "$RELEASE_TAG" \
             "$mtd0_path" \
             "$fip_path" \
+            "$preloader_path" \
+            "$recovery_fip_path" \
+            "$bl31_path" \
+            "$uboot_raw_path" \
             release-output/sha256sums.txt \
             release-output/build-info.txt \
             --clobber
