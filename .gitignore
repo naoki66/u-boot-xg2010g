@@ -6,6 +6,9 @@
 # Normal rules (sorted alphabetically)
 #
 .*
+!.github/
+!.github/workflows/
+!.github/workflows/*.yml
 !.checkpatch.conf
 *.a
 *.asn1.[ch]

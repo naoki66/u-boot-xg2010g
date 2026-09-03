@@ -1,0 +1,605 @@
+name: Build signed XG2010G mtd0
+
+on:
+  push:
+    branches:
+      - "**"
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: Build only, create a pre-release, or create a release
+        required: true
+        default: test
+        type: choice
+        options:
+          - test
+          - pre-release
+          - release
+      sign_mtd0:
+        description: Signed mtd0 behavior
+        required: true
+        default: auto
+        type: choice
+        options:
+          - auto
+          - required
+          - skip
+      tfa_ref:
+        description: Optional TF-A git ref for fiptool/cert_create
+        required: false
+        type: string
+
+env:
+  ARCH: arm
+  CROSS_COMPILE: aarch64-linux-gnu-
+  DEFCONFIG: xg2010g_defconfig
+  DEFAULT_FIP_ALIGN: "0x400"
+  DEFAULT_FIP_OFFSET: "0x800"
+  DEFAULT_MTD0_SIZE: "0x200000"
+  DEFAULT_NTFW_NVCTR: "0"
+  DEFAULT_TFA_REF: v2.13.0
+  DEFAULT_TFW_NVCTR: "0"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build U-Boot and signed mtd0
+    runs-on: ubuntu-latest
+    outputs:
+      artifact_name: ${{ steps.artifact.outputs.artifact_name }}
+      build_mode: ${{ steps.mode.outputs.value }}
+      commit: ${{ steps.version.outputs.commit }}
+      fip_name: ${{ steps.artifact.outputs.fip_name }}
+      mtd0_name: ${{ steps.artifact.outputs.mtd0_name }}
+      release_date: ${{ steps.version.outputs.release_date }}
+      signed_mtd0: ${{ steps.artifact.outputs.signed_mtd0 }}
+      tag: ${{ steps.artifact.outputs.tag }}
+
+    steps:
+      - name: Checkout U-Boot
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Select build mode
+        id: mode
+        env:
+          REQUESTED_MODE: ${{ inputs.release_type }}
+        run: |
+          set -euo pipefail
+          MODE="${REQUESTED_MODE:-test}"
+          if [ "$GITHUB_EVENT_NAME" != "workflow_dispatch" ]; then
+            MODE="test"
+          fi
+          case "$MODE" in
+            test|pre-release|release) ;;
+            *)
+              echo "Unsupported build mode: $MODE" >&2
+              exit 1
+              ;;
+          esac
+          echo "value=$MODE" >> "$GITHUB_OUTPUT"
+          echo "Build mode: $MODE"
+
+      - name: Resolve build parameters
+        id: params
+        env:
+          INPUT_SIGN_MTD0: ${{ inputs.sign_mtd0 }}
+          INPUT_TFA_REF: ${{ inputs.tfa_ref }}
+          VAR_FIP_ALIGN: ${{ vars.XG2010G_FIP_ALIGN }}
+          VAR_FIP_OFFSET: ${{ vars.XG2010G_FIP_OFFSET }}
+          VAR_MTD0_SIZE: ${{ vars.XG2010G_MTD0_SIZE }}
+          VAR_NTFW_NVCTR: ${{ vars.XG2010G_NTFW_NVCTR }}
+          VAR_TFA_REF: ${{ vars.XG2010G_TFA_REF }}
+          VAR_TFW_NVCTR: ${{ vars.XG2010G_TFW_NVCTR }}
+        run: |
+          set -euo pipefail
+          tfa_ref="${INPUT_TFA_REF:-${VAR_TFA_REF:-$DEFAULT_TFA_REF}}"
+          sign_mode="${INPUT_SIGN_MTD0:-auto}"
+          if [ "$GITHUB_EVENT_NAME" != "workflow_dispatch" ]; then
+            sign_mode="auto"
+          fi
+          if [ "${{ steps.mode.outputs.value }}" != "test" ] && [ "$sign_mode" = "auto" ]; then
+            sign_mode="required"
+          fi
+          case "$sign_mode" in
+            auto|required|skip) ;;
+            *)
+              echo "Unsupported signing mode: $sign_mode" >&2
+              exit 1
+              ;;
+          esac
+
+          mtd0_size="${VAR_MTD0_SIZE:-$DEFAULT_MTD0_SIZE}"
+          fip_offset="${VAR_FIP_OFFSET:-$DEFAULT_FIP_OFFSET}"
+          fip_align="${VAR_FIP_ALIGN:-$DEFAULT_FIP_ALIGN}"
+          tfw_nvctr="${VAR_TFW_NVCTR:-$DEFAULT_TFW_NVCTR}"
+          ntfw_nvctr="${VAR_NTFW_NVCTR:-$DEFAULT_NTFW_NVCTR}"
+
+          mtd0_size_dec=$((mtd0_size))
+          fip_offset_dec=$((fip_offset))
+          fip_align_dec=$((fip_align))
+          if (( mtd0_size_dec != 0x200000 )); then
+            echo "XG2010G mtd0 must stay 0x200000 bytes, got ${mtd0_size}" >&2
+            exit 1
+          fi
+          if (( fip_offset_dec < 0 || fip_offset_dec >= mtd0_size_dec )); then
+            echo "Invalid FIP offset ${fip_offset}" >&2
+            exit 1
+          fi
+          if (( fip_align_dec < 1 )); then
+            echo "Invalid FIP alignment ${fip_align}" >&2
+            exit 1
+          fi
+
+          {
+            echo "tfa_ref=${tfa_ref}"
+            echo "sign_mode=${sign_mode}"
+            echo "mtd0_size=${mtd0_size}"
+            echo "mtd0_size_dec=${mtd0_size_dec}"
+            echo "fip_offset=${fip_offset}"
+            echo "fip_offset_dec=${fip_offset_dec}"
+            echo "fip_align=${fip_align}"
+            echo "tfw_nvctr=${tfw_nvctr}"
+            echo "ntfw_nvctr=${ntfw_nvctr}"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "TF-A ref: ${tfa_ref}"
+          echo "mtd0 size: ${mtd0_size}"
+          echo "FIP offset: ${fip_offset}"
+          echo "FIP payload alignment: ${fip_align}"
+          echo "Signing mode: ${sign_mode}"
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc-aarch64-linux-gnu \
+            binutils-aarch64-linux-gnu \
+            build-essential \
+            bison \
+            flex \
+            swig \
+            python3-dev \
+            python3-setuptools \
+            python3-pyelftools \
+            libssl-dev \
+            device-tree-compiler \
+            bc \
+            curl \
+            git \
+            openssl
+
+      - name: Configure U-Boot
+        run: |
+          set -euo pipefail
+          make ${DEFCONFIG}
+
+      - name: Build U-Boot
+        run: |
+          set -euo pipefail
+          make -j"$(nproc)" all
+
+      - name: Get version info
+        id: version
+        run: |
+          set -euo pipefail
+          commit_short=$(git rev-parse --short=12 HEAD)
+          date_stamp=$(date +%Y%m%d)
+          version=$(sed -n 's/.*PLAIN_VERSION "\(.*\)".*/\1/p' include/generated/version_autogenerated.h 2>/dev/null | head -1)
+          if [ -z "$version" ]; then
+            version=$(date +%Y.%m)
+          fi
+          release_date=$(date +%Y-%-m-%-d)
+          {
+            echo "commit=${commit_short}"
+            echo "date=${date_stamp}"
+            echo "version=${version}"
+            echo "release_date=${release_date}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Parsed U-Boot version: ${version}"
+
+      - name: Validate U-Boot output
+        run: |
+          set -euo pipefail
+          test -f u-boot.bin
+          ls -la u-boot.bin u-boot.img u-boot.dtb || true
+          uboot_size=$(stat -c%s u-boot.bin)
+          mtd0_size=${{ steps.params.outputs.mtd0_size_dec }}
+          if (( uboot_size >= mtd0_size )); then
+            echo "u-boot.bin is too large for mtd0: ${uboot_size} >= ${mtd0_size}" >&2
+            exit 1
+          fi
+          echo "u-boot.bin size: ${uboot_size} bytes"
+
+      - name: Checkout TF-A tooling
+        if: ${{ steps.params.outputs.sign_mode != 'skip' }}
+        uses: actions/checkout@v7
+        with:
+          repository: ARM-software/arm-trusted-firmware
+          ref: ${{ steps.params.outputs.tfa_ref }}
+          path: trusted-firmware-a
+
+      - name: Build fiptool and cert_create
+        if: ${{ steps.params.outputs.sign_mode != 'skip' }}
+        run: |
+          set -euo pipefail
+          make -C trusted-firmware-a PLAT=fvp fiptool certtool -j"$(nproc)"
+          test -x trusted-firmware-a/tools/fiptool/fiptool
+          test -x trusted-firmware-a/tools/cert_create/cert_create
+
+      - name: Prepare signing inputs
+        if: ${{ steps.params.outputs.sign_mode != 'skip' }}
+        id: signing
+        env:
+          BL2_B64: ${{ secrets.XG2010G_BL2_B64 }}
+          BL2_SHA256: ${{ vars.XG2010G_BL2_SHA256 }}
+          BL2_URL: ${{ secrets.XG2010G_BL2_URL || vars.XG2010G_BL2_URL }}
+          BL31_B64: ${{ secrets.XG2010G_BL31_B64 }}
+          BL31_SHA256: ${{ vars.XG2010G_BL31_SHA256 }}
+          BL31_URL: ${{ secrets.XG2010G_BL31_URL || vars.XG2010G_BL31_URL }}
+          FIP_OFFSET_DEC: ${{ steps.params.outputs.fip_offset_dec }}
+          MTD0_PREFIX_B64: ${{ secrets.XG2010G_MTD0_PREFIX_B64 }}
+          MTD0_PREFIX_SHA256: ${{ vars.XG2010G_MTD0_PREFIX_SHA256 }}
+          MTD0_PREFIX_URL: ${{ secrets.XG2010G_MTD0_PREFIX_URL || vars.XG2010G_MTD0_PREFIX_URL }}
+          ORIGINAL_MTD0_B64: ${{ secrets.XG2010G_ORIGINAL_MTD0_B64 }}
+          ORIGINAL_MTD0_SHA256: ${{ vars.XG2010G_ORIGINAL_MTD0_SHA256 }}
+          ORIGINAL_MTD0_URL: ${{ secrets.XG2010G_ORIGINAL_MTD0_URL || vars.XG2010G_ORIGINAL_MTD0_URL }}
+          SIGN_MODE: ${{ steps.params.outputs.sign_mode }}
+          TB_PRIVATE_KEY: ${{ secrets.XG2010G_TB_PRIVATE_KEY }}
+          TB_PRIVATE_KEY_B64: ${{ secrets.XG2010G_TB_PRIVATE_KEY_B64 }}
+        run: |
+          set -euo pipefail
+          mkdir -p signing certs out
+          missing=()
+
+          restore_binary() {
+            local label="$1"
+            local b64="$2"
+            local url="$3"
+            local out="$4"
+            local sha="$5"
+
+            if [ -n "$b64" ]; then
+              printf '%s' "$b64" | base64 -d > "$out"
+            elif [ -n "$url" ]; then
+              curl -fsSL -o "$out" "$url"
+            else
+              return 1
+            fi
+
+            if [ ! -s "$out" ]; then
+              echo "${label} was restored but is empty" >&2
+              return 1
+            fi
+            if [ -n "$sha" ]; then
+              printf '%s  %s\n' "$sha" "$out" | sha256sum -c -
+            fi
+            return 0
+          }
+
+          if [ -n "$TB_PRIVATE_KEY_B64" ]; then
+            printf '%s' "$TB_PRIVATE_KEY_B64" | base64 -d > signing/tb_key.pem
+          elif [ -n "$TB_PRIVATE_KEY" ]; then
+            if printf '%s' "$TB_PRIVATE_KEY" | grep -q '\\n'; then
+              printf '%b' "$TB_PRIVATE_KEY" > signing/tb_key.pem
+            else
+              printf '%s\n' "$TB_PRIVATE_KEY" > signing/tb_key.pem
+            fi
+          else
+            missing+=("XG2010G_TB_PRIVATE_KEY")
+          fi
+
+          if [ -f signing/tb_key.pem ]; then
+            chmod 600 signing/tb_key.pem
+            openssl pkey -in signing/tb_key.pem -noout
+          fi
+
+          if [ -n "$ORIGINAL_MTD0_B64" ] || [ -n "$ORIGINAL_MTD0_URL" ]; then
+            restore_binary "original mtd0" "$ORIGINAL_MTD0_B64" "$ORIGINAL_MTD0_URL" signing/original-mtd0.bin "$ORIGINAL_MTD0_SHA256"
+            python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          offset = int(os.environ["FIP_OFFSET_DEC"], 10)
+          mtd0 = Path("signing/original-mtd0.bin").read_bytes()
+          if offset < 0 or offset >= len(mtd0):
+              raise SystemExit(f"Invalid FIP offset {offset} for original mtd0 size {len(mtd0)}")
+          Path("signing/mtd0-prefix.bin").write_bytes(mtd0[:offset])
+          Path("signing/original.fip").write_bytes(mtd0[offset:])
+          PY
+            trusted-firmware-a/tools/fiptool/fiptool unpack \
+              --force \
+              --tb-fw signing/bl2.bin \
+              --soc-fw signing/bl31.bin \
+              signing/original.fip
+          else
+            restore_binary "BL2" "$BL2_B64" "$BL2_URL" signing/bl2.bin "$BL2_SHA256" || missing+=("XG2010G_BL2_B64 or XG2010G_BL2_URL")
+            restore_binary "BL31" "$BL31_B64" "$BL31_URL" signing/bl31.bin "$BL31_SHA256" || missing+=("XG2010G_BL31_B64 or XG2010G_BL31_URL")
+            if (( FIP_OFFSET_DEC > 0 )); then
+              restore_binary "mtd0 prefix" "$MTD0_PREFIX_B64" "$MTD0_PREFIX_URL" signing/mtd0-prefix.bin "$MTD0_PREFIX_SHA256" || missing+=("XG2010G_MTD0_PREFIX_B64 or XG2010G_MTD0_PREFIX_URL")
+            else
+              : > signing/mtd0-prefix.bin
+            fi
+          fi
+
+          if [ -f signing/mtd0-prefix.bin ]; then
+            prefix_size=$(stat -c%s signing/mtd0-prefix.bin)
+            if (( prefix_size != FIP_OFFSET_DEC )); then
+              echo "mtd0 prefix must be exactly ${FIP_OFFSET_DEC} bytes, got ${prefix_size}" >&2
+              exit 1
+            fi
+          fi
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Missing signing input: %s\n' "${missing[@]}"
+            if [ "$SIGN_MODE" = "required" ]; then
+              exit 1
+            fi
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          for image in signing/bl2.bin signing/bl31.bin signing/mtd0-prefix.bin; do
+            test -e "$image"
+            ls -la "$image"
+          done
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: Generate Trusted Boot certificates and FIP
+        if: ${{ steps.signing.outputs.ready == 'true' }}
+        env:
+          FIP_ALIGN: ${{ steps.params.outputs.fip_align }}
+          NTFW_NVCTR: ${{ steps.params.outputs.ntfw_nvctr }}
+          TFW_NVCTR: ${{ steps.params.outputs.tfw_nvctr }}
+        run: |
+          set -euo pipefail
+          CERT_CREATE=trusted-firmware-a/tools/cert_create/cert_create
+          FIPTOOL=trusted-firmware-a/tools/fiptool/fiptool
+
+          "$CERT_CREATE" -n \
+            --rot-key signing/tb_key.pem \
+            --trusted-world-key signing/tb_key.pem \
+            --non-trusted-world-key signing/tb_key.pem \
+            --soc-fw-key signing/tb_key.pem \
+            --nt-fw-key signing/tb_key.pem \
+            --tfw-nvctr "$TFW_NVCTR" \
+            --ntfw-nvctr "$NTFW_NVCTR" \
+            --tb-fw signing/bl2.bin \
+            --soc-fw signing/bl31.bin \
+            --nt-fw u-boot.bin \
+            --tb-fw-cert certs/tb_fw.crt \
+            --trusted-key-cert certs/trusted_key.crt \
+            --soc-fw-key-cert certs/soc_fw_key.crt \
+            --soc-fw-cert certs/soc_fw.crt \
+            --nt-fw-key-cert certs/nt_fw_key.crt \
+            --nt-fw-cert certs/nt_fw.crt
+
+          "$FIPTOOL" create \
+            --align "$FIP_ALIGN" \
+            --tb-fw signing/bl2.bin \
+            --soc-fw signing/bl31.bin \
+            --nt-fw u-boot.bin \
+            --trusted-key-cert certs/trusted_key.crt \
+            --soc-fw-key-cert certs/soc_fw_key.crt \
+            --nt-fw-key-cert certs/nt_fw_key.crt \
+            --tb-fw-cert certs/tb_fw.crt \
+            --soc-fw-cert certs/soc_fw.crt \
+            --nt-fw-cert certs/nt_fw.crt \
+            out/fip-xg2010g-signed.bin
+
+          "$FIPTOOL" info out/fip-xg2010g-signed.bin | tee out/fip-info.txt
+
+      - name: Compose 2 MiB mtd0 image
+        if: ${{ steps.signing.outputs.ready == 'true' }}
+        env:
+          FIP_OFFSET: ${{ steps.params.outputs.fip_offset }}
+          MTD0_SIZE: ${{ steps.params.outputs.mtd0_size }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+
+          mtd0_size = int(os.environ["MTD0_SIZE"], 0)
+          fip_offset = int(os.environ["FIP_OFFSET"], 0)
+          prefix = Path("signing/mtd0-prefix.bin").read_bytes() if fip_offset else b""
+          fip = Path("out/fip-xg2010g-signed.bin").read_bytes()
+
+          if len(prefix) != fip_offset:
+              raise SystemExit(f"prefix size {len(prefix)} != FIP offset {fip_offset}")
+          if fip_offset + len(fip) > mtd0_size:
+              raise SystemExit(f"signed FIP exceeds mtd0: end={fip_offset + len(fip)} size={mtd0_size}")
+
+          mtd0 = bytearray(b"\xff" * mtd0_size)
+          mtd0[:fip_offset] = prefix
+          mtd0[fip_offset:fip_offset + len(fip)] = fip
+          out = Path("out/mtd0-bootloader-xg2010g-signed.bin")
+          out.write_bytes(mtd0)
+          print(f"mtd0 bytes: {len(mtd0)}")
+          print(f"fip offset: 0x{fip_offset:x}")
+          print(f"fip bytes: {len(fip)}")
+          print(f"fip end: 0x{fip_offset + len(fip):x}")
+          print(f"mtd0 sha256: {hashlib.sha256(mtd0).hexdigest()}")
+          PY
+          test "$(stat -c%s out/mtd0-bootloader-xg2010g-signed.bin)" = "${{ steps.params.outputs.mtd0_size_dec }}"
+
+      - name: Prepare artifacts
+        id: artifact
+        env:
+          BUILD_MODE: ${{ steps.mode.outputs.value }}
+          COMMIT_SHORT: ${{ steps.version.outputs.commit }}
+          DATE_STAMP: ${{ steps.version.outputs.date }}
+          FIP_ALIGN: ${{ steps.params.outputs.fip_align }}
+          FIP_OFFSET: ${{ steps.params.outputs.fip_offset }}
+          MTD0_SIZE: ${{ steps.params.outputs.mtd0_size }}
+          RELEASE_DATE: ${{ steps.version.outputs.release_date }}
+          SIGNED_READY: ${{ steps.signing.outputs.ready }}
+          SIGN_MODE: ${{ steps.params.outputs.sign_mode }}
+          TFA_REF: ${{ steps.params.outputs.tfa_ref }}
+          UBOOT_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          signed_mtd0=false
+          if [ "${SIGNED_READY:-false}" = "true" ]; then
+            signed_mtd0=true
+          fi
+
+          artifact_name="xg2010g-u-boot-${DATE_STAMP}-${COMMIT_SHORT}"
+          mtd0_name=""
+          fip_name=""
+          mkdir -p build-output
+
+          cp u-boot.bin build-output/
+          cp u-boot.img build-output/ 2>/dev/null || true
+          cp u-boot.dtb build-output/ 2>/dev/null || true
+          cp tools/mkimage build-output/ 2>/dev/null || true
+
+          if [ "$signed_mtd0" = "true" ]; then
+            artifact_name="xg2010g-mtd0-${DATE_STAMP}-${COMMIT_SHORT}"
+            mtd0_name="xg2010g-${RELEASE_DATE}-${COMMIT_SHORT}-mtd0-signed.bin"
+            fip_name="xg2010g-${RELEASE_DATE}-${COMMIT_SHORT}-fip-signed.bin"
+            cp out/mtd0-bootloader-xg2010g-signed.bin "build-output/${mtd0_name}"
+            cp out/fip-xg2010g-signed.bin "build-output/${fip_name}"
+            cp out/fip-info.txt build-output/
+            cp certs/*.crt build-output/
+          fi
+
+          {
+            echo "Build date: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "Repository: ${GITHUB_REPOSITORY}"
+            echo "Ref: ${GITHUB_REF_NAME}"
+            echo "Commit: $(git rev-parse HEAD)"
+            echo "Commit short: ${COMMIT_SHORT}"
+            echo "Build mode: ${BUILD_MODE}"
+            echo "U-Boot version: ${UBOOT_VERSION}"
+            echo "Signed mtd0: ${signed_mtd0}"
+            echo "Signing mode: ${SIGN_MODE}"
+            echo "TF-A ref: ${TFA_REF}"
+            echo "mtd0 size: ${MTD0_SIZE}"
+            echo "FIP offset: ${FIP_OFFSET}"
+            echo "FIP alignment: ${FIP_ALIGN}"
+            if [ "$signed_mtd0" = "true" ]; then
+              echo "mtd0 image: ${mtd0_name}"
+              echo "FIP image: ${fip_name}"
+              echo "Certificate chain: BL2 tb-fw, BL31 soc-fw, U-Boot BL33 nt-fw"
+            else
+              echo "mtd0 image: not generated because signing inputs were not complete"
+            fi
+          } > build-output/build-info.txt
+
+          sums_file=$(mktemp)
+          (cd build-output && find . -maxdepth 1 -type f ! -name sha256sums.txt -print0 | sort -z | xargs -0 sha256sum) > "$sums_file"
+          mv "$sums_file" build-output/sha256sums.txt
+
+          {
+            echo "artifact_name=${artifact_name}"
+            echo "signed_mtd0=${signed_mtd0}"
+            echo "mtd0_name=${mtd0_name}"
+            echo "fip_name=${fip_name}"
+            echo "tag=${RELEASE_DATE}-${COMMIT_SHORT}"
+          } >> "$GITHUB_OUTPUT"
+
+          ls -la build-output
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.artifact.outputs.artifact_name }}
+          path: build-output/
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Publish signed mtd0 release
+    needs: build
+    if: ${{ github.event_name == 'workflow_dispatch' && needs.build.outputs.build_mode != 'test' && needs.build.outputs.signed_mtd0 == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.build.outputs.artifact_name }}
+          path: release-output
+
+      - name: Create or update GitHub Release
+        env:
+          FIP_NAME: ${{ needs.build.outputs.fip_name }}
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MTD0_NAME: ${{ needs.build.outputs.mtd0_name }}
+          RELEASE_MODE: ${{ needs.build.outputs.build_mode }}
+          RELEASE_TAG: ${{ needs.build.outputs.tag }}
+          RELEASE_TITLE: XG2010G signed mtd0-${{ needs.build.outputs.release_date }}-g${{ needs.build.outputs.commit }}
+        run: |
+          set -euo pipefail
+          mtd0_path="release-output/${MTD0_NAME}"
+          fip_path="release-output/${FIP_NAME}"
+          for file in "$mtd0_path" "$fip_path" release-output/sha256sums.txt release-output/build-info.txt; do
+            if [ ! -f "$file" ]; then
+              echo "Release asset not found: $file" >&2
+              exit 1
+            fi
+          done
+
+          notes_file=$(mktemp)
+          cat > "$notes_file" <<EOF
+          Automated signed bootloader build from commit [\`${{ needs.build.outputs.commit }}\`](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}).
+
+          **Release channel:** ${RELEASE_MODE}
+
+          ## Files
+
+          - \`${MTD0_NAME}\` - 2 MiB \`/dev/mtd0\` bootloader image. Contains preserved prefix, BL2, BL31, signed certificates, and this repository's U-Boot as BL33.
+          - \`${FIP_NAME}\` - signed FIP only, placed at the configured mtd0 FIP offset.
+          - \`sha256sums.txt\` - SHA256 checksums for all artifacts.
+
+          ## Flash boundary
+
+          Only write \`${MTD0_NAME}\` to the \`bootloader\` partition range \`0x00000000-0x00200000\` after serial-console validation. Do not write to \`uenv\` \`0x00200000-0x00400000\` or \`dsd\` \`0x00400000-0x00600000\`.
+
+          ## Safety note
+
+          This image depends on the supplied Airoha-compatible BL2/BL31, mtd0 prefix, and Trusted Boot key. If the device has different BootROM/eFuse signing policy, do not flash this artifact.
+          EOF
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            if [ "$RELEASE_MODE" = "pre-release" ]; then
+              gh release edit "$RELEASE_TAG" \
+                --target "$GITHUB_SHA" \
+                --title "$RELEASE_TITLE" \
+                --notes-file "$notes_file" \
+                --prerelease \
+                --latest=false
+            else
+              gh release edit "$RELEASE_TAG" \
+                --target "$GITHUB_SHA" \
+                --title "$RELEASE_TITLE" \
+                --notes-file "$notes_file" \
+                --prerelease=false \
+                --latest
+            fi
+          else
+            create_args=("--target" "$GITHUB_SHA" "--title" "$RELEASE_TITLE" "--notes-file" "$notes_file")
+            if [ "$RELEASE_MODE" = "pre-release" ]; then
+              create_args+=("--prerelease" "--latest=false")
+            else
+              create_args+=("--latest")
+            fi
+            gh release create "$RELEASE_TAG" "${create_args[@]}"
+          fi
+
+          gh release upload "$RELEASE_TAG" \
+            "$mtd0_path" \
+            "$fip_path" \
+            release-output/sha256sums.txt \
+            release-output/build-info.txt \
+            --clobber

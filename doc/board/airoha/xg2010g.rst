@@ -131,6 +131,68 @@ U-Boot 配置
 ``CONFIG_OF_UPSTREAM``，而在 ``arch/arm/dts`` 维护很小的板级文件。
 SoC 级 DTS 仍然引用 U-Boot 已同步的 Airoha ``en7581.dtsi``。
 
+GitHub Actions 签名构建
+-----------------------
+
+仓库的 ``.github/workflows/build-mtd0.yml`` 用于在 GitHub Actions 上构建
+U-Boot，并在 Trusted Boot 输入齐全时生成 signed ``mtd0``：
+
+* 编译 ``xg2010g_defconfig``，将 ``u-boot.bin`` 作为 BL33；
+* 构建 TF-A 的 ``fiptool`` 和 ``cert_create``；
+* 从私有原厂 mtd0 提取前导区、BL2 和 BL31，或使用分别提供的 BL2/BL31；
+* 使用 ``cert_create`` 为 ``--tb-fw`` BL2、``--soc-fw`` BL31 和
+  ``--nt-fw`` U-Boot/BL33 生成 Trusted Boot 证书链；
+* 使用 ``fiptool create`` 生成 signed FIP；
+* 将 FIP 写入 2 MiB mtd0 镜像中的 ``0x800`` 偏移，前导区保持原厂内容，
+  其余尾部填充 ``0xff``。
+
+默认仓库变量如下：
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 20 50
+
+   * - 变量
+     - 默认值
+     - 说明
+   * - ``XG2010G_MTD0_SIZE``
+     - ``0x200000``
+     - mtd0/bootloader 固定 2 MiB，禁止越界到 uenv 或 dsd
+   * - ``XG2010G_FIP_OFFSET``
+     - ``0x800``
+     - 原厂 mtd0 中 FIP 起始位置
+   * - ``XG2010G_FIP_ALIGN``
+     - ``0x400``
+     - FIP payload 对齐，匹配已观察到的原厂 payload 偏移
+   * - ``XG2010G_TFA_REF``
+     - ``v2.13.0``
+     - 用于构建通用 TF-A 工具的版本
+
+可以先设置非敏感变量：
+
+.. code-block:: console
+
+   gh variable set XG2010G_MTD0_SIZE --repo naoki66/u-boot-xg2010g --body 0x200000
+   gh variable set XG2010G_FIP_OFFSET --repo naoki66/u-boot-xg2010g --body 0x800
+   gh variable set XG2010G_FIP_ALIGN --repo naoki66/u-boot-xg2010g --body 0x400
+   gh variable set XG2010G_TFA_REF --repo naoki66/u-boot-xg2010g --body v2.13.0
+
+私钥和原厂二进制必须使用 GitHub Secrets 或受控私有下载地址。例如：
+
+.. code-block:: console
+
+   gh secret set XG2010G_TB_PRIVATE_KEY --repo naoki66/u-boot-xg2010g < private_key.pem
+   gh secret set XG2010G_ORIGINAL_MTD0_URL --repo naoki66/u-boot-xg2010g --body "https://private.example/original-mtd0.bin"
+   gh variable set XG2010G_ORIGINAL_MTD0_SHA256 --repo naoki66/u-boot-xg2010g --body "<sha256>"
+
+如果不能提供完整原厂 mtd0，也可以提供 ``XG2010G_BL2_B64``、
+``XG2010G_BL31_B64``、``XG2010G_MTD0_PREFIX_B64``，或对应的 ``*_URL``。
+由于 Secret 有大小限制，大二进制更适合放在私有对象存储或私有 Release
+Asset，并用 SHA256 变量校验。
+
+如果 Trusted Boot 私钥曾出现在聊天、日志、工单或其它非密钥管理系统中，
+应视为已经泄露；继续制作可刷写 bootloader 前，应轮换为新私钥。
+
 建议的验证顺序
 --------------
 
