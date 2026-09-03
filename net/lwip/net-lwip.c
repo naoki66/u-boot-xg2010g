@@ -16,6 +16,10 @@
 #include <lwip/pbuf.h>
 #include <lwip/etharp.h>
 #include <lwip/init.h>
+#include <lwip/prot/ip.h>
+#include <lwip/prot/ip4.h>
+#include <lwip/prot/iana.h>
+#include <lwip/prot/udp.h>
 #include <lwip/prot/etharp.h>
 #include <lwip/timeouts.h>
 #include <net.h>
@@ -37,50 +41,181 @@ static uchar net_pkt_buf[(PKTBUFSRX) * PKTSIZE_ALIGN + PKTALIGN]
 const u8 net_bcast_ethaddr[6] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
 char *pxelinux_configfile;
 
+#if defined(CONFIG_HTTPD_RECOVERY)
+static net_lwip_udp_recv_fn recovery_dhcp_hook;
+static void *recovery_dhcp_hook_arg;
+static net_lwip_poll_fn recovery_poll_hook;
+static void *recovery_poll_hook_arg;
+
+void net_lwip_set_recovery_dhcp_hook(net_lwip_udp_recv_fn recv, void *arg)
+{
+	recovery_dhcp_hook = recv;
+	recovery_dhcp_hook_arg = arg;
+}
+
+void net_lwip_set_recovery_poll_hook(net_lwip_poll_fn poll, void *arg)
+{
+	recovery_poll_hook = poll;
+	recovery_poll_hook_arg = arg;
+}
+
+static void net_lwip_run_recovery_poll_hook(void)
+{
+	if (recovery_poll_hook)
+		recovery_poll_hook(recovery_poll_hook_arg);
+}
+#else
+void net_lwip_set_recovery_dhcp_hook(net_lwip_udp_recv_fn recv, void *arg)
+{
+}
+
+void net_lwip_set_recovery_poll_hook(net_lwip_poll_fn poll, void *arg)
+{
+}
+
+static void net_lwip_run_recovery_poll_hook(void)
+{
+}
+#endif
+
+#if defined(CONFIG_HTTPD_RECOVERY)
+#define RECOVERY_DHCP_MAX_VLAN_TAGS 2
+#define ETHTYPE_8021AD 0x88a8U
+
+static bool net_lwip_recovery_vlan_type(u16_t eth_type)
+{
+	return eth_type == ETHTYPE_VLAN || eth_type == ETHTYPE_QINQ ||
+	       eth_type == ETHTYPE_8021AD;
+}
+
+static bool net_lwip_dispatch_recovery_dhcp(const uchar *packet, int len)
+{
+	const struct eth_hdr *eth;
+	const struct eth_vlan_hdr *vlan;
+	const struct ip_hdr *ip;
+	const struct udp_hdr *udp;
+	const uchar *payload;
+	struct pbuf *pbuf;
+	ip_addr_t src_addr;
+	ip4_addr_t src_ip;
+	u16_t eth_type, ip_len, ip_offset;
+	int ip_hlen, udp_len, payload_len, offset, vlan_tags;
+
+	if (!recovery_dhcp_hook ||
+	    len < (int)(SIZEOF_ETH_HDR + sizeof(struct ip_hdr) +
+			sizeof(struct udp_hdr)))
+		return false;
+
+	eth = (const struct eth_hdr *)packet;
+	eth_type = lwip_ntohs(eth->type);
+	offset = SIZEOF_ETH_HDR;
+	for (vlan_tags = 0;
+	     vlan_tags < RECOVERY_DHCP_MAX_VLAN_TAGS &&
+	     net_lwip_recovery_vlan_type(eth_type);
+	     vlan_tags++) {
+		if (len < offset + SIZEOF_VLAN_HDR)
+			return false;
+
+		vlan = (const struct eth_vlan_hdr *)(packet + offset);
+		/* Only priority-tagged frames can be answered without VLAN TX. */
+		if (lwip_ntohs(vlan->prio_vid) & 0x0fff)
+			return false;
+
+		eth_type = lwip_ntohs(vlan->tpid);
+		offset += SIZEOF_VLAN_HDR;
+	}
+
+	if (eth_type != ETHTYPE_IP ||
+	    len < offset + (int)(sizeof(*ip) + sizeof(*udp)))
+		return false;
+
+	ip = (const struct ip_hdr *)(packet + offset);
+	ip_hlen = IPH_HL_BYTES(ip);
+	if (IPH_V(ip) != 4 || ip_hlen < IP_HLEN || ip_hlen > IP_HLEN_MAX ||
+	    IPH_PROTO(ip) != IP_PROTO_UDP)
+		return false;
+
+	ip_len = lwip_ntohs(IPH_LEN(ip));
+	ip_offset = lwip_ntohs(IPH_OFFSET(ip));
+	if (ip_offset & (IP_MF | IP_OFFMASK) ||
+	    ip_len < ip_hlen + sizeof(*udp) || ip_len > len - offset)
+		return false;
+
+	offset += ip_hlen;
+	if (len < offset + (int)sizeof(*udp))
+		return false;
+
+	udp = (const struct udp_hdr *)(packet + offset);
+	if (lwip_ntohs(udp->src) != LWIP_IANA_PORT_DHCP_CLIENT ||
+	    lwip_ntohs(udp->dest) != LWIP_IANA_PORT_DHCP_SERVER)
+		return false;
+
+	udp_len = lwip_ntohs(udp->len);
+	if (udp_len < (int)sizeof(*udp) || udp_len > ip_len - ip_hlen ||
+	    len < offset + udp_len)
+		return false;
+
+	payload_len = udp_len - sizeof(*udp);
+	if (payload_len <= 0)
+		return false;
+
+	pbuf = pbuf_alloc(PBUF_TRANSPORT, payload_len, PBUF_RAM);
+	if (!pbuf)
+		return false;
+
+	payload = packet + offset + sizeof(*udp);
+	if (pbuf_take(pbuf, payload, payload_len) != ERR_OK) {
+		pbuf_free(pbuf);
+		return false;
+	}
+
+	IPADDR_WORDALIGNED_COPY_TO_IP4_ADDR_T(&src_ip, &ip->src);
+	ip_addr_copy_from_ip4(src_addr, src_ip);
+	recovery_dhcp_hook(recovery_dhcp_hook_arg, NULL, pbuf, &src_addr,
+			   lwip_ntohs(udp->src));
+	return true;
+}
+#else
+static bool net_lwip_dispatch_recovery_dhcp(const uchar *packet, int len)
+{
+	return false;
+}
+#endif
+
 static err_t net_lwip_tx(struct netif *netif, struct pbuf *p)
 {
 	struct udevice *udev = netif->state;
-	bool pp_allocated = false;
-	u32 plen;
-	void *pp;
+	void *pp = NULL;
+	u16_t tx_len = p->tot_len;
 	int err;
 
-	if ((unsigned long)p->payload % PKTALIGN || p->len != p->tot_len) {
+	if (CONFIG_IS_ENABLED(LWIP_DEBUG_RXTX)) {
+		printf("net_lwip_tx: %u bytes, udev %s\n", tx_len, udev->name);
+		print_hex_dump("net_lwip_tx: ", 0, 16, 1, p->payload, p->len,
+			       true);
+	}
+
+	/*
+	 * lwIP may hand us a chained pbuf for TCP payload. The U-Boot Ethernet
+	 * drivers expect one contiguous frame buffer, so flatten the full packet
+	 * whenever the first payload is unaligned or the pbuf is chained.
+	 */
+	if (p->next || ((unsigned long)p->payload % PKTALIGN)) {
 		/*
 		 * Some net drivers have strict alignment requirements and may
 		 * fail or output invalid data if the packet is not aligned.
-		 *
-		 * A packet may also be stored in multiple chained pbufs. In
-		 * this case, assemble the fragments into one contiguous packet
-		 * buffer before passing it to the Ethernet driver.
 		 */
-
-		pp = memalign(PKTALIGN, p->tot_len);
+		pp = memalign(PKTALIGN, tx_len);
 		if (!pp)
-			return ERR_MEM;
-
-		pp_allocated = true;
-
-		plen = pbuf_copy_partial(p, pp, p->tot_len, 0);
-		if (plen != p->tot_len) {
+			return ERR_ABRT;
+		if (pbuf_copy_partial(p, pp, tx_len, 0) != tx_len) {
 			free(pp);
-			return ERR_BUF;
+			return ERR_ABRT;
 		}
-	} else {
-		pp = p->payload;
-		plen = p->len;
 	}
 
-	if (CONFIG_IS_ENABLED(LWIP_DEBUG_RXTX)) {
-		printf("net_lwip_tx: %u bytes, udev %s\n", plen, udev->name);
-		print_hex_dump("net_lwip_tx: ", 0, 16, 1, pp, plen, true);
-	}
-
-	err = eth_get_ops(udev)->send(udev, pp, plen);
-
-	if (pp_allocated)
-		free(pp);
-
+	err = eth_get_ops(udev)->send(udev, pp ? pp : p->payload, tx_len);
+	free(pp);
 	if (err) {
 		debug("send error %d\n", err);
 		return ERR_ABRT;
@@ -361,10 +496,17 @@ int net_lwip_rx(struct udevice *udev, struct netif *netif)
 
 	flags = ETH_RECV_CHECK_DEVICE;
 	for (i = 0; i < ETH_PACKETS_BATCH_RECV; i++) {
+		net_lwip_run_recovery_poll_hook();
 		len = eth_get_ops(udev)->recv(udev, flags, &packet);
 		flags = 0;
 
 		if (len > 0) {
+			if (net_lwip_dispatch_recovery_dhcp(packet, len)) {
+				if (eth_get_ops(udev)->free_pkt)
+					eth_get_ops(udev)->free_pkt(udev, packet, len);
+				continue;
+			}
+
 			if (CONFIG_IS_ENABLED(LWIP_DEBUG_RXTX)) {
 				printf("net_lwip_tx: %u bytes, udev %s \n", len,
 				       udev->name);

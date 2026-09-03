@@ -1,9 +1,11 @@
-# SPDX-License-Identifier: GPL-2.0+
+<!-- SPDX-License-Identifier: GPL-2.0+ -->
+
+<a id="top"></a>
 
 <p align="center">
-  <img alt="XG2010G" src="https://img.shields.io/badge/Target-Brightspeed%20XG2010G-0f766e?style=for-the-badge">
-  <img alt="Airoha" src="https://img.shields.io/badge/SoC-Airoha%20AN7581%20class-1f6feb?style=for-the-badge">
-  <img alt="NAND" src="https://img.shields.io/badge/NAND-512%20MiB%20SLC-7c3aed?style=for-the-badge">
+  <img alt="Target: Brightspeed XG2010G" src="https://img.shields.io/badge/Target-Brightspeed%20XG2010G-0f766e?style=for-the-badge">
+  <img alt="SoC: Airoha AN7581 class" src="https://img.shields.io/badge/SoC-Airoha%20AN7581%20class-1f6feb?style=for-the-badge">
+  <img alt="NAND: 512 MiB SLC" src="https://img.shields.io/badge/NAND-512%20MiB%20SLC-7c3aed?style=for-the-badge">
 </p>
 
 <h1 align="center">Brightspeed XG2010G U-Boot Bootloader</h1>
@@ -19,9 +21,30 @@
   <a href="https://github.com/naoki66/u-boot-xg2010g/releases">
     <img alt="GitHub release" src="https://img.shields.io/github/v/release/naoki66/u-boot-xg2010g?include_prereleases&label=release">
   </a>
-  <img alt="U-Boot mainline" src="https://img.shields.io/badge/U--Boot-mainline-0f766e?logo=linux&logoColor=white">
+  <a href="https://github.com/naoki66/u-boot-xg2010g/releases">
+    <img alt="Downloads" src="https://img.shields.io/github/downloads/naoki66/u-boot-xg2010g/total?label=downloads">
+  </a>
+  <img alt="Last commit" src="https://img.shields.io/github/last-commit/naoki66/u-boot-xg2010g?label=last%20commit">
+  <img alt="U-Boot 2026.10-rc3 mainline" src="https://img.shields.io/badge/U--Boot-2026.10--rc3%20mainline-0f766e">
+  <img alt="TF-A tooling v2.13.0" src="https://img.shields.io/badge/TF--A%20tooling-v2.13.0-1f6feb">
+  <img alt="Architecture aarch64" src="https://img.shields.io/badge/arch-aarch64-aa6400?logo=arm&logoColor=white">
   <img alt="License GPL-2.0+" src="https://img.shields.io/badge/license-GPL--2.0%2B-2ea043">
   <img alt="Signed artifacts only" src="https://img.shields.io/badge/artifacts-signed%20only-c2410c">
+</p>
+
+<p align="center">
+  <a href="https://github.com/naoki66/u-boot-xg2010g/releases">
+    <img alt="Latest Release" src="https://img.shields.io/badge/Releases-Latest-0f766e?style=for-the-badge&logo=github">
+  </a>
+  <a href="https://github.com/naoki66/u-boot-xg2010g/actions/workflows/build-mtd0.yml">
+    <img alt="CI Actions" src="https://img.shields.io/badge/Actions-CI%20Build-1f6feb?style=for-the-badge&logo=githubactions&logoColor=white">
+  </a>
+  <a href="doc/board/airoha/xg2010g.rst">
+    <img alt="Board manual" src="https://img.shields.io/badge/Docs-board%20manual-7c3aed?style=for-the-badge&logo=readthedocs&logoColor=white">
+  </a>
+  <a href="board/airoha/xg2010g/firmware/README.md">
+    <img alt="Firmware blobs" src="https://img.shields.io/badge/Firmware-BL2%2FBL31%20blobs-d97706?style=for-the-badge">
+  </a>
 </p>
 
 <p align="center">
@@ -32,22 +55,38 @@
 
 ---
 
-## 目录
+## 📚 目录
 
-- [项目定位](#项目定位)
-- [快速卡片](#快速卡片)
-- [安全边界](#安全边界)
-- [启动链图](#启动链图)
-- [NAND 分区图](#nand-分区图)
-- [Releases 文件怎么用](#releases-文件怎么用)
-- [TTL/TFTP 刷入 mtd0](#ttltftp-刷入-mtd0)
-- [X 模式与 Web Recovery](#x-模式与-web-recovery)
-- [首启环境迁移](#首启环境迁移)
-- [正常引导与回退](#正常引导与回退)
-- [本地构建](#本地构建)
-- [GPL 说明](#gpl-说明)
+**概览**
 
-## 项目定位
+- [📌 项目定位](#-项目定位)
+- [✨ 特性速览](#-特性速览)
+- [🚀 快速开始（TL;DR）](#-快速开始tldr)
+- [🔒 安全边界](#-安全边界)
+
+**启动链与分区**
+
+- [🔗 启动链图](#-启动链图)
+- [🔑 BL2、BL31 与签名](#-bl2bl31-与签名)
+- [📜 证书产物](#-证书产物)
+- [📊 NAND 分区图](#-nand-分区图)
+
+**刷机与救砖**
+
+- [📦 Releases 文件怎么用](#-releases-文件怎么用)
+- [⚡ TTL/TFTP 刷入 mtd0](#-ttltftp-刷入-mtd0)
+- [🆘 X 模式与 Web Recovery](#-x-模式与-web-recovery)
+- [🔄 首启环境迁移](#-首启环境迁移)
+- [✅ 正常引导与回退](#-正常引导与回退)
+
+**构建与法律**
+
+- [🔧 本地构建](#-本地构建)
+- [📄 GPL 说明](#-gpl-说明)
+
+---
+
+## 📌 项目定位
 
 本仓库基于当前主线 U-Boot，加入 Brightspeed XG2010G 的 Airoha AN7581 类平台
 板级支持，用于替换原厂被限制功能的 `mtd0 bootloader`。
@@ -66,7 +105,36 @@ XG2010G 的 `mtd0` 通常不是裸 `u-boot.bin`，而是一个从 BL2 开始验�
 `u-boot.bin` 只是 BL33 候选文件；正式刷机请使用 Actions/Releases 生成的
 signed mtd0/FIP。
 
-## 快速卡片
+<p align="right"><a href="#top"><b>↑ 返回顶部</b></a></p>
+
+## ✨ 特性速览
+
+| 图标 | 特性 | 说明 |
+| --- | --- | --- |
+| 🧩 | 主线 U-Boot | 基于 U-Boot `2026.10-rc3` 主线，新增 XG2010G 板级 DTS 与 `xg2010g_defconfig` |
+| 🔐 | 强制 Trusted Boot | Actions 构建必须完成签名，**不存在** unsigned/skip 出口，未签名不上传 |
+| 🧱 | mtd0 边界硬校验 | workflow 强制 mtd0 = `0x200000`（2 MiB），越界直接构建失败 |
+| 🧬 | 可追溯 BL2/BL31 | 内置前导区、BL2、BL31 均记录 SHA256，来自 `2026-08-16` 原厂备份 |
+| 🔧 | 固定可复现工具链 | TF-A `v2.13.0` 固定 ref，`fiptool` / `cert_create` 产物可复现 |
+| 🛟 | 双救砖路径 | BootROM X 模式 XMODEM 两段传输 + Web Recovery 重建 UBI |
+| 📦 | 完整交付物 | 每次构建附带 `sha256sums.txt` 与 `build-info.txt`（commit、日期、边界） |
+| 🔑 | 私钥不落盘 | `XG2010G_TB_PRIVATE_KEY` 只存 GitHub Secret，证书私钥材料不进 artifact |
+
+<p align="right"><a href="#top"><b>↑ 返回顶部</b></a></p>
+
+## 🚀 快速开始（TL;DR）
+
+> [!TIP]
+> 先判断你处在哪种情况，再选择对应文件。**只有 `mtd0-signed.bin` 可以写 bootloader 分区。**
+
+| 你的情况 | 使用的产物 | 操作要点 |
+| --- | --- | --- |
+| 🟢 能进原厂 U-Boot / TTL，要替换 bootloader | `xg2010g-...-mtd0-signed.bin` | [TTL/TFTP 刷入](#-ttltftp-刷入-mtd0)，只擦写 `0x000000` 起 `0x200000` |
+| 🔴 mtd0 写坏、NAND 无法启动 | `ubi-preloader.bin` + `ubi-bl31-uboot.fip` | [X 模式 XMODEM 救砖](#-x-模式与-web-recovery)，再走 Web Recovery |
+| 🔵 只升级系统，不动 bootloader | `ubi-squashfs-sysupgrade.itb` | 只刷 `ubi` 区域（`0x00600000` 起，440 MiB），必须重建 UBI |
+| 🟡 本地开发 / 调试 | `u-boot.bin`（BL33 候选） | [本地构建](#-本地构建)，**不可**直接写入 `mtd0` |
+
+**关键约束卡片：**
 
 | 图标 | 操作 | 关键点 |
 | --- | --- | --- |
@@ -76,7 +144,9 @@ signed mtd0/FIP。
 | 🛟 | 救砖路径 | X 模式通过 XMODEM 发送 `ubi-preloader.bin` 和 `ubi-bl31-uboot.fip` |
 | 🌐 | Web Recovery | 无痕模式访问 `http://192.168.1.1/uboot.html`，必须勾选“先重建 UBI” |
 
-## 安全边界
+<p align="right"><a href="#top"><b>↑ 返回顶部</b></a></p>
+
+## 🔒 安全边界
 
 > [!WARNING]
 > `mtd0` 的正确长度是 `0x200000`，即 2 MiB。不要使用 `0x2000000` 作为
@@ -95,7 +165,9 @@ signed mtd0/FIP。
 | `reserved_bmt` | NAND 坏块替代/BMT 预留，不能被系统镜像覆盖 |
 | 私钥 | `XG2010G_TB_PRIVATE_KEY` 只放 GitHub Secret；若曾公开出现，应轮换 |
 
-## 启动链图
+<p align="right"><a href="#top"><b>↑ 返回顶部</b></a></p>
+
+## 🔗 启动链图
 
 ```mermaid
 flowchart LR
@@ -116,7 +188,9 @@ flowchart LR
     class F os;
 ```
 
-## BL2、BL31 与签名
+<p align="right"><a href="#top"><b>↑ 返回顶部</b></a></p>
+
+## 🔑 BL2、BL31 与签名
 
 BL2 和 BL31 不是 U-Boot 生成的文件，也不能由 Trusted Boot Key 生成。它们
 必须来自与设备硬件匹配的 Airoha 固件输入，或者来自完整可用的 Airoha
@@ -130,6 +204,34 @@ TF-A/DDR 初始化源码和签名配置。
 4. 签名链从 BL2 开始：`--tb-fw` BL2、`--soc-fw` BL31、`--nt-fw` U-Boot/BL33。
 5. 将 signed FIP 放回 2 MiB `mtd0` 镜像的 `0x800` 偏移。
 
+签名构建流水线：
+
+```mermaid
+flowchart LR
+    U["U-Boot 源码<br/>xg2010g_defconfig"] --> B["u-boot.bin<br/>BL33"]
+    K["XG2010G_TB_PRIVATE_KEY<br/>仅存 GitHub Secret"] --> C["cert_create<br/>Trusted Boot 证书链"]
+    L2["ubi-preloader.bin<br/>BL2（原厂备份）"] --> C
+    L31["bl31.bin<br/>BL31（原厂备份）"] --> C
+    B --> C
+    L2 --> F["fiptool create<br/>signed FIP"]
+    L31 --> F
+    B --> F
+    C --> F
+    P["mtd0-prefix.bin<br/>0x800 前导区"] --> M["2 MiB mtd0 镜像<br/>FIP @ 0x800，尾部 0xff"]
+    F --> M
+    M --> A["Artifact / Release<br/>仅 signed 产物"]
+
+    classDef src fill:#dcfce7,stroke:#16a34a,color:#0f172a;
+    classDef stock fill:#fef3c7,stroke:#d97706,color:#0f172a;
+    classDef key fill:#fee2e2,stroke:#dc2626,color:#0f172a;
+    classDef out fill:#e0f2fe,stroke:#0284c7,color:#0f172a;
+
+    class U,B src;
+    class L2,L31,P stock;
+    class K,C key;
+    class F,M,A out;
+```
+
 仓库内置的最小启动输入来自
 `original-device-backup-20260816/mtd0-bootloader-stock.bin`：
 
@@ -142,7 +244,9 @@ TF-A/DDR 初始化源码和签名配置。
 这些文件只适用于匹配的 XG2010G 硬件、NAND、DDR 和安全启动策略。若板级修订
 不同，应从对应设备备份重新提取并覆盖 workflow 输入。
 
-## 证书产物
+<p align="right"><a href="#top"><b>↑ 返回顶部</b></a></p>
+
+## 📜 证书产物
 
 签名过程中会临时生成 `trusted_key.crt`、`tb_fw.crt`、`tb_fw_key.crt`、
 `soc_fw.crt`、`soc_fw_key.crt`、`nt_fw.crt` 和 `nt_fw_key.crt`。
@@ -156,7 +260,9 @@ U-Boot/BL33 的哈希、公钥关系和 NV counter 等元数据放进 signed FIP
 因此 workflow 只在签名过程中临时生成单独 `.crt` 文件，不上传到 artifact 或
 GitHub Releases。
 
-## NAND 分区图
+<p align="right"><a href="#top"><b>↑ 返回顶部</b></a></p>
+
+## 📊 NAND 分区图
 
 ```mermaid
 pie showData
@@ -167,21 +273,6 @@ pie showData
     "ubi" : 440
     "reserved_bmt" : 66
 ```
-
-### 原厂可见分区
-
-| 地址范围 | 分区名 |
-| --- | --- |
-| `0x00000000-0x00200000` | `bootloader` |
-| `0x00200000-0x00400000` | `uenv` |
-| `0x00400000-0x00600000` | `dsd` |
-| `0x00600000-0x00964842` | `kernel` |
-| `0x00964940-0x025d4940` | `rootfs` |
-| `0x00600000-0x04600000` | `tclinux` |
-| `0x04600000-0x04964842` | `kernel_slave` |
-| `0x04964940-0x065d4940` | `rootfs_slave` |
-| `0x04600000-0x08600000` | `tclinux_slave` |
-| `0x08600000-0x1be00000` | `system` |
 
 ### 本项目目标边界
 
@@ -196,7 +287,27 @@ pie showData
 后续系统升级只应刷写 `ubi` 区域，也就是偏移 `0x00600000`、长度
 `0x1b800000`。不要覆盖 `bootloader`、`uenv`、`dsd` 或尾部 BMT 预留区。
 
-## Releases 文件怎么用
+<details>
+<summary>📂 查看原厂可见分区（legacy 布局参考，点击展开）</summary>
+
+| 地址范围 | 分区名 |
+| --- | --- |
+| `0x00000000-0x00200000` | `bootloader` |
+| `0x00200000-0x00400000` | `uenv` |
+| `0x00400000-0x00600000` | `dsd` |
+| `0x00600000-0x00964842` | `kernel` |
+| `0x00964940-0x025d4940` | `rootfs` |
+| `0x00600000-0x04600000` | `tclinux` |
+| `0x04600000-0x04964842` | `kernel_slave` |
+| `0x04964940-0x065d4940` | `rootfs_slave` |
+| `0x04600000-0x08600000` | `tclinux_slave` |
+| `0x08600000-0x1be00000` | `system` |
+
+</details>
+
+<p align="right"><a href="#top"><b>↑ 返回顶部</b></a></p>
+
+## 📦 Releases 文件怎么用
 
 ```mermaid
 flowchart TD
@@ -209,6 +320,14 @@ flowchart TD
     M --> T["TTL/TFTP 写入<br/>flash erase/write 0x200000"]
     P --> X["X 模式救砖"]
     F --> X
+
+    classDef root fill:#0f172a,stroke:#334155,color:#ffffff;
+    classDef art fill:#e0f2fe,stroke:#0284c7,color:#0f172a;
+    classDef use fill:#dcfce7,stroke:#16a34a,color:#0f172a;
+
+    class R root;
+    class M,P,F,S,U art;
+    class T,X use;
 ```
 
 | 文件 | 用途 |
@@ -239,7 +358,9 @@ CertUtil -hashfile xg2010g-...-mtd0-signed.bin SHA256
 > FIP 文件用于救砖、调试或 Web Recovery，不要当作完整 `mtd0` 直接写入
 > `0x00000000`。
 
-## TTL/TFTP 刷入 mtd0
+<p align="right"><a href="#top"><b>↑ 返回顶部</b></a></p>
+
+## ⚡ TTL/TFTP 刷入 mtd0
 
 适用于已经能进原厂 U-Boot/TTL 命令行，并且当前 bootloader 提供 Airoha
 `flash` 命令的情况。
@@ -279,16 +400,15 @@ reset
 | `flash erase [addr] [len]` | 起始地址 + 长度 |
 | `flash write [dst] [len] *[src]` | 目的 NAND 地址 + 长度 + 来源内存地址 |
 
-如果当前 bootloader 处在 TFTP receive/server 模式，电脑侧可能需要执行：
+> [!NOTE]
+> 如果当前 bootloader 处在 TFTP receive/server 模式，电脑侧可能需要执行
+> `tftp -i 192.168.0.1 put image.ub`。这种情况下也应发送同一个 signed mtd0
+> 产物；`image.ub` 只能作为传输文件名示例，不能把系统镜像 `image.ub` 当
+> bootloader 写入 mtd0。
 
-```console
-tftp -i 192.168.0.1 put image.ub
-```
+<p align="right"><a href="#top"><b>↑ 返回顶部</b></a></p>
 
-这种情况下也应发送同一个 signed mtd0 产物；`image.ub` 只能作为传输文件名
-示例，不能把系统镜像 `image.ub` 当 bootloader 写入 mtd0。
-
-## X 模式与 Web Recovery
+## 🆘 X 模式与 Web Recovery
 
 如果 `mtd0` 写坏导致 NAND 无法启动，Airoha BootROM 通常仍可进入串口
 X 模式加载临时引导。该流程需要 TTL 串口和支持 XMODEM 的终端工具。
@@ -322,8 +442,9 @@ sequenceDiagram
 4. 打开终端菜单：文件 -> 传输 -> XMODEM -> 发送。
 5. 选择 `bootext.ram`，等待传输完成。之后通常不再需要重复加载该文件。
 
-`bootext.ram` 属于平台救援链文件，不由本仓库的 U-Boot 编译生成；需要保留
-已验证可用的原厂/平台版本。
+> [!NOTE]
+> `bootext.ram` 属于平台救援链文件，不由本仓库的 U-Boot 编译生成；需要
+> 保留已验证可用的原厂/平台版本。
 
 ### 正式救砖/刷机
 
@@ -345,7 +466,9 @@ sequenceDiagram
 16. 等待数分钟完成刷写。
 17. 刷写完成后务必断电重启设备。
 
-## 首启环境迁移
+<p align="right"><a href="#top"><b>↑ 返回顶部</b></a></p>
+
+## 🔄 首启环境迁移
 
 原厂 `mtd1/uenv` 中的环境是有效 U-Boot 环境，刷入新 `mtd0` 后会被主线
 U-Boot 读取。原厂默认 `bootcmd=flash imgread 2048;bootm` 依赖 ECONET/Airoha
@@ -389,11 +512,16 @@ reset
 | `411` | 光口/PON 方向 | 上网 2.5G 正常，作为默认值 |
 | `421` | 网口方向 | 已知场景下 2.5G 网口不能用于上网，只建议临时调试 |
 
-## 正常引导与回退
+<p align="right"><a href="#top"><b>↑ 返回顶部</b></a></p>
+
+## ✅ 正常引导与回退
 
 Web Recovery 刷写 `ubi-squashfs-sysupgrade.itb` 并勾选“先重建 UBI”后，正常
 启动应直接断电重启，不再按 <kbd>RESET</kbd>，让 U-Boot 执行迁移后的
 `bootcmd`。
+
+<details>
+<summary>💾 保留原厂/legacy <code>tclinux</code> 回退命令（可选，点击展开）</summary>
 
 如需临时保留原厂/legacy `tclinux` 回退命令，建议保存为备份变量，不要作为
 默认 `bootcmd`：
@@ -411,6 +539,8 @@ setenv bootargs "${bootargs_stock}"
 run bootcmd_stock
 ```
 
+</details>
+
 如果系统已经启动到 OpenWrt/failsafe，需要清理 overlay 或重新设置密码：
 
 ```console
@@ -420,7 +550,9 @@ passwd
 reboot
 ```
 
-## 本地构建
+<p align="right"><a href="#top"><b>↑ 返回顶部</b></a></p>
+
+## 🔧 本地构建
 
 推荐在 WSL/Linux 文件系统中构建，或用 `git archive` 导出临时构建副本，避免
 Windows drvfs 上脚本可执行位和符号链接问题：
@@ -430,18 +562,35 @@ make CROSS_COMPILE=aarch64-linux-gnu- xg2010g_defconfig
 make CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc)
 ```
 
-本地构建出的 `u-boot.bin` 只是 BL33 候选文件。正式可刷写 `mtd0` 镜像请使用
-GitHub Actions/Releases 生成的 signed artifact。
+> [!IMPORTANT]
+> 本地构建出的 `u-boot.bin` 只是 BL33 候选文件。正式可刷写 `mtd0` 镜像请使用
+> GitHub Actions/Releases 生成的 signed artifact。
 
-更多板级细节见 `doc/board/airoha/xg2010g.rst`。
+更多板级细节见 [doc/board/airoha/xg2010g.rst](doc/board/airoha/xg2010g.rst)；
+内置 BL2/BL31 固件说明见
+[board/airoha/xg2010g/firmware/README.md](board/airoha/xg2010g/firmware/README.md)。
 
-## GPL 说明
+<p align="right"><a href="#top"><b>↑ 返回顶部</b></a></p>
+
+## 📄 GPL 说明
 
 Upstream U-Boot remains GPL-2.0+ licensed. The original upstream notice is:
 
 > (C) Copyright 2000 - 2013 Wolfgang Denk, DENX Software Engineering,
 > wd@denx.de.
 
-See `COPYING` and `Licenses/README` for the complete U-Boot licensing
-information. This project keeps that GPL basis and adds XG2010G board files,
-documentation, and GitHub Actions packaging.
+See [`COPYING`](COPYING) and [`Licenses/README`](Licenses/README) for the
+complete U-Boot licensing information. This project keeps that GPL basis and
+adds XG2010G board files, documentation, and GitHub Actions packaging.
+
+---
+
+<p align="center">
+  <sub>
+    Upstream <a href="https://github.com/u-boot/u-boot">U-Boot</a> (GPL-2.0+) · XG2010G board support by this project · 刷机会变砖，操作前请完整备份原厂 <code>mtd0</code>
+  </sub>
+</p>
+
+<p align="center">
+  <a href="#top"><b>↑ 返回顶部</b></a>
+</p>

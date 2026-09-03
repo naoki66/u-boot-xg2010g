@@ -64,7 +64,15 @@
 
 #define MEM_ALIGNMENT                   8
 
-#define MEMP_NUM_TCP_SEG                16
+#if defined(CONFIG_HTTPD_RECOVERY)
+/*
+ * Recovery uploads multi-MiB firmware over HTTP POST. Bump the segment pool
+ * to absorb browser bursts and out-of-order segments without dropping.
+ */
+#define MEMP_NUM_TCP_SEG                256
+#else
+#define MEMP_NUM_TCP_SEG                128
+#endif
 
 /* IP fragmentation parameters for TFTP reassembly */
 #define IP_FRAG_MTU_USABLE              1480
@@ -87,8 +95,15 @@
 #define PBUF_POOL_SIZE			(((CONFIG_TFTP_BLOCKSIZE + (IP_FRAG_MTU_USABLE - 1)) / \
 					  IP_FRAG_MTU_USABLE) + PBUF_POOL_HEADROOM)
 #define IP_REASS_MAX_PBUFS		(PBUF_POOL_SIZE - PBUF_POOL_RESERVE)
+#elif defined(CONFIG_HTTPD_RECOVERY)
+/*
+ * Recovery needs more pbuf slots than the bare default to sustain large POST
+ * uploads while the main loop is busy with memcpy or flash operations.
+ */
+#define PBUF_POOL_SIZE                  128
+#define IP_REASS_MAX_PBUFS              4
 #else
-#define PBUF_POOL_SIZE                  8
+#define PBUF_POOL_SIZE                  64
 #define IP_REASS_MAX_PBUFS              4
 #endif
 
@@ -103,6 +118,8 @@
 #define IP_REASS_MAXAGE                 3
 
 #define IP_FRAG_USES_STATIC_BUF         0
+#define IP_SOF_BROADCAST                1
+#define IP_SOF_BROADCAST_RECV           1
 
 #define IP_DEFAULT_TTL                  255
 
@@ -156,7 +173,15 @@
 #define TCP_WND                         CONFIG_LWIP_TCP_WND
 #define LWIP_WND_SCALE                  1
 #define TCP_RCV_SCALE                   0x7
+#if defined(CONFIG_HTTPD_RECOVERY)
+/*
+ * Recovery responses stall with a 2*MSS send buffer on some browsers. 8*MSS
+ * lets status and completion responses leave in one trip.
+ */
+#define TCP_SND_BUF                     (8 * TCP_MSS)
+#else
 #define TCP_SND_BUF                     (2 * TCP_MSS)
+#endif
 #ifdef CONFIG_PROT_TCP_SACK_LWIP
 #define LWIP_TCP_SACK_OUT               1
 #endif
@@ -190,6 +215,19 @@
 #define MEMP_MEM_INIT			1
 #define MEM_LIBC_MALLOC			1
 
+#if defined(CONFIG_HTTPD_RECOVERY)
+/* Keep a few extra timeout slots available for deferred reboot handling. */
+#define MEMP_NUM_SYS_TIMEOUT            8
+/*
+ * Browsers often keep one connection open, upload on another, and fetch status
+ * or favicon on more. The lwIP defaults are too tight for that pattern.
+ */
+#define MEMP_NUM_TCP_PCB                8
+#define MEMP_NUM_TCP_PCB_LISTEN         2
+#define MEMP_NUM_TCP_PCB_TIME_WAIT      4
+#define MEMP_NUM_PBUF                   32
+#endif
+
 #if CONFIG_IS_ENABLED(MBEDTLS_LIB_TLS)
 #define LWIP_ALTCP                      1
 #define LWIP_ALTCP_TLS                  1
@@ -198,6 +236,25 @@
 
 #if defined(CONFIG_CMD_SNTP)
 #define LWIP_DHCP_GET_NTP_SRV 1
+#endif
+
+#if defined(CONFIG_HTTPD_RECOVERY)
+#define LWIP_HTTPD_DYNAMIC_HEADERS              1
+#define LWIP_HTTPD_SUPPORT_POST                 1
+#define LWIP_HTTPD_POST_MANUAL_WND              1
+#define LWIP_HTTPD_POST_RESPONSE_ACK            1
+#define LWIP_HTTPD_CUSTOM_FILES                 1
+#define LWIP_HTTPD_CGI                          0
+#define LWIP_HTTPD_SSI                          0
+#define LWIP_HTTPD_MAX_REQ_LENGTH               16384
+#define LWIP_HTTPD_MAX_REQUEST_URI_LEN          64
+#define LWIP_HTTPD_POST_MAX_RESPONSE_URI_LEN    64
+#define LWIP_HTTPD_SUPPORT_REQUESTLIST          1
+#define LWIP_HTTPD_REQ_BUFSIZE                  16384
+#define LWIP_HTTPD_REQ_QUEUELEN                 64
+/* Custom recovery responses may be freed as soon as httpd closes the file. */
+#define HTTP_IS_DATA_VOLATILE(hs) \
+	(((hs)->handle->flags & FS_FILE_FLAGS_CUSTOM) ? TCP_WRITE_FLAG_COPY : 0)
 #endif
 
 #endif /* LWIP_UBOOT_LWIPOPTS_H */

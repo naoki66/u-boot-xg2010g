@@ -5,11 +5,17 @@
 /* BL2/BL31 use the first 2 MiB of DDR before handing off to U-Boot. */
 /memreserve/ 0x80000000 0x200000;
 
+#include <dt-bindings/gpio/gpio.h>
 #include "../../../dts/upstream/src/arm64/airoha/en7581.dtsi"
 
 / {
 	model = "XG2010G";
-	compatible = "naoki,xg2010g", "airoha,en7581";
+	compatible = "naoki,xg2010g", "gemtek,xg2010g",
+		     "econet,xg2010g", "airoha,en7581";
+
+	recovery-gpios = <&en7581_pinctrl 0 GPIO_ACTIVE_LOW>;
+	recovery-green-led-gpios = <&en7581_pinctrl 46 GPIO_ACTIVE_LOW>;
+	recovery-yellow-led-gpios = <&en7581_pinctrl 42 GPIO_ACTIVE_LOW>;
 
 	aliases {
 		serial0 = &uart1;
@@ -35,7 +41,6 @@
 		bootloader@0 {
 			label = "bootloader";
 			reg = <0x00000000 0x00200000>;
-			read-only;
 		};
 
 		uenv@200000 {

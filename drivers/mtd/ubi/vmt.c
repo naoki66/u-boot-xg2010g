@@ -26,6 +26,26 @@
 
 static int self_check_volumes(struct ubi_device *ubi);
 
+#ifdef __UBOOT__
+static void (*ubi_progress_cb)(struct ubi_volume *vol, int done, int total);
+
+void ubi_set_progress_callback(void (*cb)(struct ubi_volume *vol, int done,
+					  int total))
+{
+	ubi_progress_cb = cb;
+}
+
+static inline void ubi_report_progress(struct ubi_volume *vol, int done, int total)
+{
+	if (ubi_progress_cb)
+		ubi_progress_cb(vol, done, total);
+}
+#else
+static inline void ubi_report_progress(struct ubi_volume *vol, int done, int total)
+{
+}
+#endif
+
 #ifndef __UBOOT__
 static ssize_t vol_attribute_show(struct device *dev,
 				  struct device_attribute *attr, char *buf);
@@ -391,10 +411,13 @@ int ubi_remove_volume(struct ubi_volume_desc *desc, int no_vtbl)
 			goto out_err;
 	}
 
+	ubi_report_progress(vol, 0, vol->reserved_pebs);
+
 	for (i = 0; i < vol->reserved_pebs; i++) {
 		err = ubi_eba_unmap_leb(ubi, vol, i);
 		if (err)
 			goto out_err;
+		ubi_report_progress(vol, i + 1, vol->reserved_pebs);
 	}
 
 	cdev_del(&vol->cdev);
@@ -502,10 +525,12 @@ int ubi_resize_volume(struct ubi_volume_desc *desc, int reserved_pebs)
 		goto out_acc;
 
 	if (pebs < 0) {
+		ubi_report_progress(vol, 0, -pebs);
 		for (i = 0; i < -pebs; i++) {
 			err = ubi_eba_unmap_leb(ubi, vol, reserved_pebs + i);
 			if (err)
 				goto out_acc;
+			ubi_report_progress(vol, i + 1, -pebs);
 		}
 		spin_lock(&ubi->volumes_lock);
 		ubi->rsvd_pebs += pebs;
