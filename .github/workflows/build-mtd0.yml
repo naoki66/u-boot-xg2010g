@@ -15,10 +15,6 @@ on:
           - test
           - pre-release
           - release
-      tfa_ref:
-        description: Optional TF-A git ref for fiptool/cert_create
-        required: false
-        type: string
 
 env:
   ARCH: arm
@@ -32,8 +28,8 @@ env:
   DEFAULT_FIP_OFFSET: "0x800"
   DEFAULT_MTD0_SIZE: "0x200000"
   DEFAULT_NTFW_NVCTR: "0"
-  DEFAULT_TFA_REF: v2.13.0
   DEFAULT_TFW_NVCTR: "0"
+  FIXED_TFA_REF: v2.13.0
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 permissions:
@@ -85,16 +81,14 @@ jobs:
       - name: Resolve build parameters
         id: params
         env:
-          INPUT_TFA_REF: ${{ inputs.tfa_ref }}
           VAR_FIP_ALIGN: ${{ vars.XG2010G_FIP_ALIGN }}
           VAR_FIP_OFFSET: ${{ vars.XG2010G_FIP_OFFSET }}
           VAR_MTD0_SIZE: ${{ vars.XG2010G_MTD0_SIZE }}
           VAR_NTFW_NVCTR: ${{ vars.XG2010G_NTFW_NVCTR }}
-          VAR_TFA_REF: ${{ vars.XG2010G_TFA_REF }}
           VAR_TFW_NVCTR: ${{ vars.XG2010G_TFW_NVCTR }}
         run: |
           set -euo pipefail
-          tfa_ref="${INPUT_TFA_REF:-${VAR_TFA_REF:-$DEFAULT_TFA_REF}}"
+          tfa_ref="$FIXED_TFA_REF"
 
           mtd0_size="${VAR_MTD0_SIZE:-$DEFAULT_MTD0_SIZE}"
           fip_offset="${VAR_FIP_OFFSET:-$DEFAULT_FIP_OFFSET}"
@@ -129,7 +123,7 @@ jobs:
             echo "ntfw_nvctr=${ntfw_nvctr}"
           } >> "$GITHUB_OUTPUT"
 
-          echo "TF-A ref: ${tfa_ref}"
+          echo "TF-A ref: ${tfa_ref} (fixed)"
           echo "mtd0 size: ${mtd0_size}"
           echo "FIP offset: ${fip_offset}"
           echo "FIP payload alignment: ${fip_align}"

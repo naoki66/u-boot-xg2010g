@@ -68,7 +68,6 @@ Airoha 匹配平台的 TF-A/DDR 初始化源码和完整签名配置，否则不
 | `XG2010G_MTD0_SIZE` | `0x200000` | 仅覆盖 mtd0/bootloader 的 2 MiB |
 | `XG2010G_FIP_OFFSET` | `0x800` | 原厂 mtd0 中 FIP 起始偏移 |
 | `XG2010G_FIP_ALIGN` | `0x400` | FIP payload 对齐，匹配已观察到的原厂偏移 |
-| `XG2010G_TFA_REF` | `v2.13.0` | 用于构建通用 `fiptool`/`cert_create` 的 TF-A 版本 |
 
 可先设置非敏感仓库变量：
 
@@ -76,8 +75,12 @@ Airoha 匹配平台的 TF-A/DDR 初始化源码和完整签名配置，否则不
 gh variable set XG2010G_MTD0_SIZE --repo naoki66/u-boot-xg2010g --body 0x200000
 gh variable set XG2010G_FIP_OFFSET --repo naoki66/u-boot-xg2010g --body 0x800
 gh variable set XG2010G_FIP_ALIGN --repo naoki66/u-boot-xg2010g --body 0x400
-gh variable set XG2010G_TFA_REF --repo naoki66/u-boot-xg2010g --body v2.13.0
 ```
+
+TF-A 工具版本固定在 workflow 内的 `FIXED_TFA_REF=v2.13.0`，用于构建
+`fiptool` 和 `cert_create`。手动运行 Actions 时不再提供 TF-A ref 输入，也
+不再读取 `XG2010G_TFA_REF` 变量，避免误填不同 TF-A 版本导致 FIP/证书产物
+不可复现。
 
 使用仓库内置 BL2/BL31/prefix 时，只需要设置 Trusted Boot 私钥 Secret：
 
