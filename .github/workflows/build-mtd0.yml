@@ -15,15 +15,6 @@ on:
           - test
           - pre-release
           - release
-      sign_mtd0:
-        description: Signed mtd0 behavior
-        required: true
-        default: auto
-        type: choice
-        options:
-          - auto
-          - required
-          - skip
       tfa_ref:
         description: Optional TF-A git ref for fiptool/cert_create
         required: false
@@ -31,6 +22,10 @@ on:
 
 env:
   ARCH: arm
+  BUNDLED_BL2_SHA256: 6dfd08d05691cf2d89e0892b4e597a8d9a8ebab80a362c9b7a02868ffcddd1c8
+  BUNDLED_BL31_SHA256: e79bb6960e71384a4f8b67be0d0cd0f64042b174b4e6b2502428238f548245f3
+  BUNDLED_FW_DIR: board/airoha/xg2010g/firmware
+  BUNDLED_MTD0_PREFIX_SHA256: 82830140f4f8842702d0569065c27071b7cc24e0876e6c487cb4d9d81c294dd7
   CROSS_COMPILE: aarch64-linux-gnu-
   DEFCONFIG: xg2010g_defconfig
   DEFAULT_FIP_ALIGN: "0x400"
@@ -58,7 +53,6 @@ jobs:
       preloader_name: ${{ steps.artifact.outputs.preloader_name }}
       release_date: ${{ steps.version.outputs.release_date }}
       recovery_fip_name: ${{ steps.artifact.outputs.recovery_fip_name }}
-      signed_mtd0: ${{ steps.artifact.outputs.signed_mtd0 }}
       tag: ${{ steps.artifact.outputs.tag }}
       uboot_raw_name: ${{ steps.artifact.outputs.uboot_raw_name }}
 
@@ -91,7 +85,6 @@ jobs:
       - name: Resolve build parameters
         id: params
         env:
-          INPUT_SIGN_MTD0: ${{ inputs.sign_mtd0 }}
           INPUT_TFA_REF: ${{ inputs.tfa_ref }}
           VAR_FIP_ALIGN: ${{ vars.XG2010G_FIP_ALIGN }}
           VAR_FIP_OFFSET: ${{ vars.XG2010G_FIP_OFFSET }}
@@ -102,20 +95,6 @@ jobs:
         run: |
           set -euo pipefail
           tfa_ref="${INPUT_TFA_REF:-${VAR_TFA_REF:-$DEFAULT_TFA_REF}}"
-          sign_mode="${INPUT_SIGN_MTD0:-auto}"
-          if [ "$GITHUB_EVENT_NAME" != "workflow_dispatch" ]; then
-            sign_mode="auto"
-          fi
-          if [ "${{ steps.mode.outputs.value }}" != "test" ] && [ "$sign_mode" = "auto" ]; then
-            sign_mode="required"
-          fi
-          case "$sign_mode" in
-            auto|required|skip) ;;
-            *)
-              echo "Unsupported signing mode: $sign_mode" >&2
-              exit 1
-              ;;
-          esac
 
           mtd0_size="${VAR_MTD0_SIZE:-$DEFAULT_MTD0_SIZE}"
           fip_offset="${VAR_FIP_OFFSET:-$DEFAULT_FIP_OFFSET}"
@@ -141,7 +120,6 @@ jobs:
 
           {
             echo "tfa_ref=${tfa_ref}"
-            echo "sign_mode=${sign_mode}"
             echo "mtd0_size=${mtd0_size}"
             echo "mtd0_size_dec=${mtd0_size_dec}"
             echo "fip_offset=${fip_offset}"
@@ -155,7 +133,7 @@ jobs:
           echo "mtd0 size: ${mtd0_size}"
           echo "FIP offset: ${fip_offset}"
           echo "FIP payload alignment: ${fip_align}"
-          echo "Signing mode: ${sign_mode}"
+          echo "Signing: required"
 
       - name: Install dependencies
         run: |
@@ -221,7 +199,6 @@ jobs:
           echo "u-boot.bin size: ${uboot_size} bytes"
 
       - name: Checkout TF-A tooling
-        if: ${{ steps.params.outputs.sign_mode != 'skip' }}
         uses: actions/checkout@v7
         with:
           repository: ARM-software/arm-trusted-firmware
@@ -229,7 +206,6 @@ jobs:
           path: trusted-firmware-a
 
       - name: Build fiptool and cert_create
-        if: ${{ steps.params.outputs.sign_mode != 'skip' }}
         run: |
           set -euo pipefail
           make -C trusted-firmware-a PLAT=fvp fiptool certtool -j"$(nproc)"
@@ -237,7 +213,6 @@ jobs:
           test -x trusted-firmware-a/tools/cert_create/cert_create
 
       - name: Prepare signing inputs
-        if: ${{ steps.params.outputs.sign_mode != 'skip' }}
         id: signing
         env:
           BL2_B64: ${{ secrets.XG2010G_BL2_B64 }}
@@ -253,7 +228,6 @@ jobs:
           ORIGINAL_MTD0_B64: ${{ secrets.XG2010G_ORIGINAL_MTD0_B64 }}
           ORIGINAL_MTD0_SHA256: ${{ vars.XG2010G_ORIGINAL_MTD0_SHA256 }}
           ORIGINAL_MTD0_URL: ${{ secrets.XG2010G_ORIGINAL_MTD0_URL || vars.XG2010G_ORIGINAL_MTD0_URL }}
-          SIGN_MODE: ${{ steps.params.outputs.sign_mode }}
           TB_PRIVATE_KEY: ${{ secrets.XG2010G_TB_PRIVATE_KEY }}
           TB_PRIVATE_KEY_B64: ${{ secrets.XG2010G_TB_PRIVATE_KEY_B64 }}
         run: |
@@ -289,11 +263,21 @@ jobs:
           if [ -n "$TB_PRIVATE_KEY_B64" ]; then
             printf '%s' "$TB_PRIVATE_KEY_B64" | base64 -d > signing/tb_key.pem
           elif [ -n "$TB_PRIVATE_KEY" ]; then
-            if printf '%s' "$TB_PRIVATE_KEY" | grep -q '\\n'; then
-              printf '%b' "$TB_PRIVATE_KEY" > signing/tb_key.pem
-            else
-              printf '%s\n' "$TB_PRIVATE_KEY" > signing/tb_key.pem
-            fi
+            python3 - <<'PY'
+          import os
+          import re
+          import textwrap
+          from pathlib import Path
+
+          key = os.environ["TB_PRIVATE_KEY"].replace("\\n", "\n").strip()
+          begin = "-----BEGIN PRIVATE KEY-----"
+          end = "-----END PRIVATE KEY-----"
+          if begin in key and end in key and "\n" not in key:
+              body = key.split(begin, 1)[1].split(end, 1)[0]
+              body = re.sub(r"\s+", "", body)
+              key = begin + "\n" + "\n".join(textwrap.wrap(body, 64)) + "\n" + end
+          Path("signing/tb_key.pem").write_text(key + "\n", encoding="ascii", newline="\n")
+          PY
           else
             missing+=("XG2010G_TB_PRIVATE_KEY")
           fi
@@ -322,12 +306,21 @@ jobs:
               --soc-fw signing/bl31.bin \
               signing/original.fip
           else
-            restore_binary "BL2" "$BL2_B64" "$BL2_URL" signing/bl2.bin "$BL2_SHA256" || missing+=("XG2010G_BL2_B64 or XG2010G_BL2_URL")
-            restore_binary "BL31" "$BL31_B64" "$BL31_URL" signing/bl31.bin "$BL31_SHA256" || missing+=("XG2010G_BL31_B64 or XG2010G_BL31_URL")
-            if (( FIP_OFFSET_DEC > 0 )); then
-              restore_binary "mtd0 prefix" "$MTD0_PREFIX_B64" "$MTD0_PREFIX_URL" signing/mtd0-prefix.bin "$MTD0_PREFIX_SHA256" || missing+=("XG2010G_MTD0_PREFIX_B64 or XG2010G_MTD0_PREFIX_URL")
+            if [ -n "$BL2_B64$BL2_URL$BL31_B64$BL31_URL$MTD0_PREFIX_B64$MTD0_PREFIX_URL" ]; then
+              restore_binary "BL2" "$BL2_B64" "$BL2_URL" signing/bl2.bin "$BL2_SHA256" || missing+=("XG2010G_BL2_B64 or XG2010G_BL2_URL")
+              restore_binary "BL31" "$BL31_B64" "$BL31_URL" signing/bl31.bin "$BL31_SHA256" || missing+=("XG2010G_BL31_B64 or XG2010G_BL31_URL")
+              if (( FIP_OFFSET_DEC > 0 )); then
+                restore_binary "mtd0 prefix" "$MTD0_PREFIX_B64" "$MTD0_PREFIX_URL" signing/mtd0-prefix.bin "$MTD0_PREFIX_SHA256" || missing+=("XG2010G_MTD0_PREFIX_B64 or XG2010G_MTD0_PREFIX_URL")
+              else
+                : > signing/mtd0-prefix.bin
+              fi
             else
-              : > signing/mtd0-prefix.bin
+              cp "${BUNDLED_FW_DIR}/ubi-preloader.bin" signing/bl2.bin
+              cp "${BUNDLED_FW_DIR}/bl31.bin" signing/bl31.bin
+              cp "${BUNDLED_FW_DIR}/mtd0-prefix.bin" signing/mtd0-prefix.bin
+              printf '%s  %s\n' "$BUNDLED_BL2_SHA256" signing/bl2.bin | sha256sum -c -
+              printf '%s  %s\n' "$BUNDLED_BL31_SHA256" signing/bl31.bin | sha256sum -c -
+              printf '%s  %s\n' "$BUNDLED_MTD0_PREFIX_SHA256" signing/mtd0-prefix.bin | sha256sum -c -
             fi
           fi
 
@@ -341,15 +334,11 @@ jobs:
 
           if [ "${#missing[@]}" -gt 0 ]; then
             printf 'Missing signing input: %s\n' "${missing[@]}"
-            if [ "$SIGN_MODE" = "required" ]; then
-              exit 1
-            fi
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-            exit 0
+            exit 1
           fi
 
           for image in signing/bl2.bin signing/bl31.bin signing/mtd0-prefix.bin; do
-            test -e "$image"
+            test -s "$image"
             ls -la "$image"
           done
           echo "ready=true" >> "$GITHUB_OUTPUT"
@@ -457,24 +446,30 @@ jobs:
           MTD0_SIZE: ${{ steps.params.outputs.mtd0_size }}
           RELEASE_DATE: ${{ steps.version.outputs.release_date }}
           SIGNED_READY: ${{ steps.signing.outputs.ready }}
-          SIGN_MODE: ${{ steps.params.outputs.sign_mode }}
           TFA_REF: ${{ steps.params.outputs.tfa_ref }}
           UBOOT_VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
-          signed_mtd0=false
-          if [ "${SIGNED_READY:-false}" = "true" ]; then
-            signed_mtd0=true
+          if [ "${SIGNED_READY:-false}" != "true" ]; then
+            echo "Signed mtd0 artifacts are required, but signing did not complete." >&2
+            exit 1
           fi
 
-          artifact_name="xg2010g-u-boot-${DATE_STAMP}-${COMMIT_SHORT}"
-          bl31_name=""
-          mtd0_name=""
-          fip_name=""
-          preloader_name=""
-          recovery_fip_name=""
+          artifact_name="xg2010g-mtd0-${DATE_STAMP}-${COMMIT_SHORT}"
+          mtd0_name="xg2010g-${RELEASE_DATE}-${COMMIT_SHORT}-mtd0-signed.bin"
+          fip_name="xg2010g-${RELEASE_DATE}-${COMMIT_SHORT}-fip-signed.bin"
+          preloader_name="xg2010g-${RELEASE_DATE}-${COMMIT_SHORT}-ubi-preloader.bin"
+          recovery_fip_name="xg2010g-${RELEASE_DATE}-${COMMIT_SHORT}-ubi-bl31-uboot.fip"
+          bl31_name="xg2010g-${RELEASE_DATE}-${COMMIT_SHORT}-bl31.bin"
           uboot_raw_name="xg2010g-${RELEASE_DATE}-${COMMIT_SHORT}-u-boot-raw.bin"
           mkdir -p build-output
+
+          test -s out/mtd0-bootloader-xg2010g-signed.bin
+          test -s out/fip-xg2010g-signed.bin
+          test -s out/ubi-bl31-uboot.fip
+          test -s signing/bl2.bin
+          test -s signing/bl31.bin
+          test -s u-boot.bin
 
           cp u-boot.bin build-output/
           cp u-boot.bin "build-output/${uboot_raw_name}"
@@ -482,26 +477,17 @@ jobs:
           cp u-boot.img build-output/ 2>/dev/null || true
           cp u-boot.dtb build-output/ 2>/dev/null || true
           cp tools/mkimage build-output/ 2>/dev/null || true
-
-          if [ "$signed_mtd0" = "true" ]; then
-            artifact_name="xg2010g-mtd0-${DATE_STAMP}-${COMMIT_SHORT}"
-            mtd0_name="xg2010g-${RELEASE_DATE}-${COMMIT_SHORT}-mtd0-signed.bin"
-            fip_name="xg2010g-${RELEASE_DATE}-${COMMIT_SHORT}-fip-signed.bin"
-            preloader_name="xg2010g-${RELEASE_DATE}-${COMMIT_SHORT}-ubi-preloader.bin"
-            recovery_fip_name="xg2010g-${RELEASE_DATE}-${COMMIT_SHORT}-ubi-bl31-uboot.fip"
-            bl31_name="xg2010g-${RELEASE_DATE}-${COMMIT_SHORT}-bl31.bin"
-            cp out/mtd0-bootloader-xg2010g-signed.bin "build-output/${mtd0_name}"
-            cp out/fip-xg2010g-signed.bin "build-output/${fip_name}"
-            cp signing/bl2.bin "build-output/${preloader_name}"
-            cp signing/bl31.bin "build-output/${bl31_name}"
-            cp out/ubi-bl31-uboot.fip "build-output/${recovery_fip_name}"
-            cp signing/bl2.bin build-output/ubi-preloader.bin
-            cp signing/bl31.bin build-output/bl31.bin
-            cp out/ubi-bl31-uboot.fip build-output/ubi-bl31-uboot.fip
-            cp out/fip-info.txt build-output/
-            cp out/ubi-bl31-uboot-fip-info.txt build-output/
-            cp certs/*.crt build-output/
-          fi
+          cp out/mtd0-bootloader-xg2010g-signed.bin "build-output/${mtd0_name}"
+          cp out/fip-xg2010g-signed.bin "build-output/${fip_name}"
+          cp signing/bl2.bin "build-output/${preloader_name}"
+          cp signing/bl31.bin "build-output/${bl31_name}"
+          cp out/ubi-bl31-uboot.fip "build-output/${recovery_fip_name}"
+          cp signing/bl2.bin build-output/ubi-preloader.bin
+          cp signing/bl31.bin build-output/bl31.bin
+          cp out/ubi-bl31-uboot.fip build-output/ubi-bl31-uboot.fip
+          cp out/fip-info.txt build-output/
+          cp out/ubi-bl31-uboot-fip-info.txt build-output/
+          cp certs/*.crt build-output/
 
           {
             echo "Build date: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -511,23 +497,19 @@ jobs:
             echo "Commit short: ${COMMIT_SHORT}"
             echo "Build mode: ${BUILD_MODE}"
             echo "U-Boot version: ${UBOOT_VERSION}"
-            echo "Signed mtd0: ${signed_mtd0}"
-            echo "Signing mode: ${SIGN_MODE}"
+            echo "Signed mtd0: true"
+            echo "Signing: required"
             echo "TF-A ref: ${TFA_REF}"
             echo "mtd0 size: ${MTD0_SIZE}"
             echo "FIP offset: ${FIP_OFFSET}"
             echo "FIP alignment: ${FIP_ALIGN}"
             echo "Raw U-Boot/BL33: ${uboot_raw_name}"
-            if [ "$signed_mtd0" = "true" ]; then
-              echo "mtd0 image: ${mtd0_name}"
-              echo "FIP image: ${fip_name}"
-              echo "Recovery BL2/preloader: ${preloader_name}"
-              echo "Recovery BL31+U-Boot FIP: ${recovery_fip_name}"
-              echo "Raw BL31: ${bl31_name}"
-              echo "Certificate chain: BL2 tb-fw, BL31 soc-fw, U-Boot BL33 nt-fw"
-            else
-              echo "mtd0 image: not generated because signing inputs were not complete"
-            fi
+            echo "mtd0 image: ${mtd0_name}"
+            echo "FIP image: ${fip_name}"
+            echo "Recovery BL2/preloader: ${preloader_name}"
+            echo "Recovery BL31+U-Boot FIP: ${recovery_fip_name}"
+            echo "Raw BL31: ${bl31_name}"
+            echo "Certificate chain: BL2 tb-fw, BL31 soc-fw, U-Boot BL33 nt-fw"
           } > build-output/build-info.txt
 
           sums_file=$(mktemp)
@@ -537,7 +519,6 @@ jobs:
           {
             echo "artifact_name=${artifact_name}"
             echo "bl31_name=${bl31_name}"
-            echo "signed_mtd0=${signed_mtd0}"
             echo "mtd0_name=${mtd0_name}"
             echo "fip_name=${fip_name}"
             echo "preloader_name=${preloader_name}"
@@ -559,7 +540,7 @@ jobs:
   release:
     name: Publish signed mtd0 release
     needs: build
-    if: ${{ github.event_name == 'workflow_dispatch' && needs.build.outputs.build_mode != 'test' && needs.build.outputs.signed_mtd0 == 'true' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && needs.build.outputs.build_mode != 'test' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write

@@ -14,6 +14,7 @@
 *.asn1.[ch]
 *.bin
 *.bin[_.]*
+!board/airoha/xg2010g/firmware/*.bin
 *.cfgout
 *.cover
 *.dtb
