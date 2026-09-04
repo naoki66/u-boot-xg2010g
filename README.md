@@ -139,7 +139,7 @@ signed mtd0/FIP。
 | signed FIP 在 mtd0 内偏移 | `0x800` |
 | U-Boot 加载地址 | `0x81800000` |
 | TTL/TFTP 网段 | U-Boot `192.168.0.1`，电脑 `192.168.0.205/24`（网线接设备 1G 口） |
-| Web Recovery | 无痕模式打开 `http://192.168.1.1/uboot.html`，必须勾选“先重建 UBI” |
+| Web Recovery | 无痕模式打开 `http://192.168.1.1/uboot.html`，系统固件上传会自动重建 UBI |
 | 救砖文件 | `ubi-preloader.bin` + `ubi-bl31-uboot.fip`（XMODEM 两段） |
 
 <p align="right"><a href="#top"><b>↑ 返回顶部</b></a></p>
@@ -235,14 +235,14 @@ flowchart LR
   <img width="380" alt="XG2010G 512 MiB NAND 单柱布局图（真实比例）" src="doc/board/airoha/xg2010g-nand-layout.svg">
 </p>
 
-### 本项目目标边界
+### 本项目 NAND 目标边界
 
 | 区域 | 起始 | 结束（不含） | 大小 | 用途 |
 | --- | --- | --- | --- | --- |
 | `bootloader` | `0x00000000` | `0x00200000` | 2 MiB | 完整 signed mtd0/FIP，只在确认后替换 |
 | `uenv` | `0x00200000` | `0x00400000` | 2 MiB | U-Boot 环境，默认保留 |
 | `dsd` | `0x00400000` | `0x00600000` | 2 MiB | 原厂校准数据，必须保留 |
-| `ubi` | `0x00600000` | `0x1be00000` | 440 MiB | 后续系统镜像/UBI 数据 |
+| `ubi` | `0x00600000` | `0x1be00000` | 440 MiB | 项目唯一系统 UBI，必须包含 `fit` 卷 |
 | `reserved_bmt` | `0x1be00000` | `0x20000000` | 66 MiB | NAND 坏块替代/BMT 预留 |
 
 后续系统升级只应刷写 `ubi` 区域，也就是偏移 `0x00600000`、长度
@@ -264,7 +264,17 @@ flowchart LR
 | `0x04600000-0x08600000` | `tclinux_slave` |
 | `0x08600000-0x1be00000` | `system` |
 
+该表仅用于对照原厂 TTL 日志和确认硬件范围，不是本项目的启动布局，
+也不表示项目 U-Boot/Recovery 会挂载或回退到这些分区。
+
 </details>
+
+原厂 TTL 日志确认该 NAND 曾使用 `tclinux`、`tclinux_slave`、`system` 分区，
+且原厂 UBI 挂载在 `system`。这些名称和布局仅用于硬件校核，本项目不识别、
+不挂载、也不回退到原厂分区；刷入项目 U-Boot 后必须使用上表中的新 `ubi` 布局。
+TTL 同时确认 NAND 几何为 512 MiB、128 KiB 擦除块、2 KiB 页、128 字节 OOB；
+U-Boot/Recovery 会校验项目 `ubi` 的 440 MiB 分区及 128 KiB/2 KiB 几何，
+不满足时按 UBI 启动失败处理并进入 Recovery。
 
 <p align="right"><a href="#top"><b>↑ 返回顶部</b></a></p>
 
@@ -415,17 +425,18 @@ sequenceDiagram
 12. 选择系统镜像 `ubi-squashfs-sysupgrade.itb`。
 13. `BL2` 选择 `xg2010g-...-ubi-preloader.bin` 或 `ubi-preloader.bin`。
 14. `U-Boot` 选择 `xg2010g-...-ubi-bl31-uboot.fip` 或 `ubi-bl31-uboot.fip`。
-15. 必须勾选“先重建 UBI”。
+15. 系统固件上传会自动擦除并重建完整 `ubi` 布局，无需额外勾选。
 16. 等待数分钟完成刷写，之后务必断电重启设备。
 
 <p align="right"><a href="#top"><b>↑ 返回顶部</b></a></p>
 
 ## 🔄 首启环境迁移
 
-原厂 `mtd1/uenv` 中的环境是有效 U-Boot 环境，刷入新 `mtd0` 后会被主线
-U-Boot 读取。原厂默认 `bootcmd=flash imgread 2048;bootm` 依赖 ECONET/Airoha
-私有 `flash` 命令；主线 U-Boot 应迁移为 `mtd` 命令，否则自动启动可能停在
-`Unknown command 'flash'`。
+原厂 `mtd1/uenv` 中的环境会被新 U-Boot 读取，但原厂
+`bootcmd=flash imgread 2048;bootm` 属于旧布局，不能继续使用。项目只支持
+新 `ubi` 分区和 `fit` 卷；启动失败时由 `bootcmd` 自动转入 Web Recovery。
+板级初始化还会识别并替换带有 `ubi.mtd=system/tclinux*` 或
+`root=/dev/mtdblock*` 的旧 `bootargs`，避免 Linux 继续挂载原厂布局。
 
 首次刷入 signed `mtd0` 后，先通过 TTL 中断自动启动，执行一次环境迁移。
 这些命令会写入 `uenv`，建议先用 `printenv` 保存当前环境：
@@ -437,21 +448,25 @@ setenv loadaddr 0x81800000
 setenv bootdelay 4
 setenv bootflag 0
 setenv serdes_ethernet 411
-setenv bootcmd 'mtd read ubi ${loadaddr} 0x2100 0x4000000; bootm ${loadaddr}'
-setenv bootargs 'sdram_conf=0x00108893 vendor_name=ECONET Technologies Corp. product_name=xPON ONU ubi.mtd=ubi snmp_sysobjid=1.2.3.4.5 country_code=ff ether_gpio=0c power_gpio=1515 dsl_gpio=0b internet_gpio=02 multi_upgrade_gpio=0b020400000000000000000000000000 onu_type=71 qdma_init=69bb console=ttyS0,115200n8 earlycon bootflag=0 serdes_sel=0 serdes_pon=000 serdes_ethernet=411 serdes_wifi1=005 serdes_wifi2=413 serdes_usb1=111 serdes_usb2=000'
+setenv boot_ubi 'ubi part ubi && run boot_production'
+setenv boot_production 'run ubi_read_production && bootm ${loadaddr}#${bootconf}'
+setenv ubi_read_production 'ubi read ${loadaddr} fit'
+setenv bootconf config-1
+setenv bootcmd 'run boot_ubi || http_recovery'
+setenv bootargs 'sdram_conf=0x00108893 vendor_name=ECONET Technologies Corp. product_name=xPON ONU ubi.mtd=ubi snmp_sysobjid=1.2.3.4.5 country_code=ff ether_gpio=0c power_gpio=1515 dsl_gpio=0b internet_gpio=02 multi_upgrade_gpio=0b020400000000000000000000000000 onu_type=71 qdma_init=69bb console=ttyS0,115200n8 earlycon bootflag=0 serdes_sel=0 serdes_pon=000 serdes_ethernet=411 serdes_wifi1=005 serdes_wifi2=413 serdes_usb1=111 serdes_usb2=000 ubi.block=0,fit root=/dev/fit0 rootwait ramdisk_size=65536 rdinit=/sbin/init'
 saveenv
 reset
 ```
 
 迁移说明：
 
-- `mtd read ubi ${loadaddr} 0x2100 0x4000000` 对应原厂
-  `flash read 0x602100 0x4000000 $loadaddr`。新分区中 `ubi` 从
-  `0x00600000` 开始，因此原厂绝对偏移 `0x602100` 转成分区内偏移
-  `0x2100`。
 - `ubi.mtd=system` 应改为 `ubi.mtd=ubi`，匹配本项目 DTS 中的新 UBI 分区名。
-- `root=/dev/mtdblock4 ro` 是原厂旧 `rootfs` 分区路径；新 UBI 布局下不作为默认
-  bootargs 写入。最终 root 参数应由 OpenWrt/FIT/UBI 镜像自身布局决定。
+- `root=/dev/mtdblock4 ro` 是原厂旧 `rootfs` 分区路径；新 UBI 布局下不应写入。
+  默认启动必须从 `fit` 卷读取 FIT，root 参数由 FIT/系统镜像布局决定。
+- 新 U-Boot 会在检测到上述旧参数时自动替换为项目默认 bootargs；其他自定义
+  启动参数如需保留，应在项目默认 bootargs 基础上追加。
+- `bootcmd` 必须保留 `run boot_ubi || http_recovery`，这样 UBI attach、`fit`
+  卷读取或 FIT 启动失败时会自动进入 Recovery。
 - 不要把示例 `ethaddr=00:AA:BB:01:23:40` 写进 `bootargs`；真实 MAC 应保留在
   U-Boot 环境变量 `ethaddr` 或由设备树/系统配置传递。
 - `console`、`sdram_conf`、`qdma_init`、`*_gpio`、`onu_type`、`country_code` 和
@@ -462,7 +477,7 @@ reset
 
 ## ✅ 正常引导与回退
 
-Web Recovery 刷写 `ubi-squashfs-sysupgrade.itb` 并勾选“先重建 UBI”后，正常
+Web Recovery 刷写 `ubi-squashfs-sysupgrade.itb` 并自动重建 UBI 后，正常
 启动应直接断电重启，不再按 <kbd>RESET</kbd>，让 U-Boot 执行迁移后的
 `bootcmd`。
 
@@ -477,26 +492,9 @@ saveenv
 
 设置为 `0` 可恢复为检测到按键后立即进入恢复。
 
-<details>
-<summary>💾 保留原厂/legacy <code>tclinux</code> 回退命令（可选，点击展开）</summary>
-
-如需临时保留原厂/legacy `tclinux` 回退命令，建议保存为备份变量，不要作为
-默认 `bootcmd`：
-
-```console
-setenv bootcmd_stock 'flash read 0x602100 0x4000000 ${loadaddr}; bootm ${loadaddr}'
-setenv bootargs_stock 'sdram_conf=0x00108893 vendor_name=ECONET Technologies Corp. product_name=xPON ONU ubi.mtd=system snmp_sysobjid=1.2.3.4.5 country_code=ff ether_gpio=0c power_gpio=1515 dsl_gpio=0b internet_gpio=02 multi_upgrade_gpio=0b020400000000000000000000000000 onu_type=61 qdma_init=69bb root=/dev/mtdblock4 ro console=ttyS0,115200n8 earlycon bootflag=0 serdes_sel=0 serdes_pon=000 serdes_ethernet=411 serdes_wifi1=005 serdes_wifi2=413 serdes_usb1=111 serdes_usb2=000 tclinux_info=0x1fc4d8b,0x5724,0x36101e,0x366840,0x3000000,0x0,0x2000,0x0,0x2000,0x0'
-saveenv
-```
-
-需要手动测试 legacy 回退时，再在 TTL 下执行：
-
-```console
-setenv bootargs "${bootargs_stock}"
-run bootcmd_stock
-```
-
-</details>
+项目不提供原厂 `tclinux/tclinux_slave/system` 回退命令。若新 UBI 未格式化、
+缺少 `fit` 卷或 FIT 校验/启动失败，`run boot_ubi || http_recovery` 会直接
+启动 Web Recovery；上传完整项目系统镜像时 Recovery 会自动重建 UBI。
 
 如果系统已经启动到 OpenWrt/failsafe，需要清理 overlay 或重新设置密码：
 
@@ -517,7 +515,7 @@ reboot
 | `tftpboot` 超时 / 下载失败 | IP 不对、TFTP 被防火墙拦截、网线没接 1G 口 | 确认电脑为 `192.168.0.205/24`、TFTP server 已运行并放行、网线接设备 1G 口 |
 | `filesize` 不是 `0x200000` 或 CRC 与发布值不符 | 文件下载不完整或拿错产物 | 用 Release 内 `sha256sums.txt` 校验，重新下载 `mtd0-signed.bin` |
 | 第二段 XMODEM 后进不了 Web Recovery | <kbd>RESET</kbd> 时序不对 | 传输 100% 前按住 <kbd>RESET</kbd>，等流水灯亮起再松开，无痕模式访问 |
-| 想临时回原厂系统 | 之前保存过 `bootcmd_stock` | 见[正常引导与回退](#-正常引导与回退)中的 legacy 回退命令 |
+| UBI 启动失败 | UBI 未格式化、缺少 `fit` 卷或 FIT 无法启动 | 等待自动进入 Web Recovery，上传完整项目系统镜像，Recovery 自动重建 UBI |
 
 <p align="right"><a href="#top"><b>↑ 返回顶部</b></a></p>
 

@@ -121,7 +121,7 @@ NAND 分区
    * - ``ubi``
      - ``0x00600000``
      - ``0x1be00000``
-     - 440 MiB，后续系统镜像/UBI 数据
+     - 440 MiB，项目唯一系统 UBI，必须包含 ``fit`` 卷
    * - ``reserved_bmt``
      - ``0x1be00000``
      - ``0x20000000``
@@ -130,7 +130,12 @@ NAND 分区
 这里的 ``ubi`` 是给 UBI 使用的 MTD 分区；“UBI 2.0”表示目标系统的
 UBI 分区/布局约定，不是 U-Boot 中需要选择的另一个 UBI 工具版本。
 UBI 会根据 NAND 的实际擦除块和坏块情况管理可用 PEB。尾部预留区不能
-被系统镜像、UBI 镜像或升级脚本覆盖。
+被系统镜像、UBI 镜像或升级脚本覆盖。原厂 TTL 中的 ``tclinux``、
+``tclinux_slave``、``system`` 仅用于校核，不属于本项目兼容布局。TTL
+确认本板使用 512 MiB W25N04K，擦除块 128 KiB、页 2 KiB、OOB 128 字节；
+项目 U-Boot/Recovery 会拒绝不符合该几何和 440 MiB 分区大小的 ``ubi``。
+板级初始化会自动清理原厂 ``ubi.mtd=system/tclinux*`` 和
+``root=/dev/mtdblock*`` 参数，避免 Linux 误挂载原厂分区。
 
 刷写边界
 --------
@@ -287,7 +292,7 @@ X 模式加载临时引导。该流程需要 TTL 串口和支持 XMODEM 的终�
 6. 浏览器使用无痕模式访问 ``http://192.168.1.1/uboot.html``。
 7. 选择 ``ubi-squashfs-sysupgrade.itb``；``BL2`` 选择
    ``...-ubi-preloader.bin``，``U-Boot`` 选择 ``...-ubi-bl31-uboot.fip``。
-8. 必须勾选“先重建 UBI”，等待数分钟完成刷写。
+8. 系统固件上传会自动擦除并重建完整 UBI，等待数分钟完成刷写。
 9. 刷写完成后务必断电重启设备。
 
 U-Boot 启动后会对 RESET GPIO 做确认：默认需要持续按住 3 秒才进入 Web

@@ -88,6 +88,10 @@ __weak void airoha_recovery_poll_link(struct udevice *dev)
 #define RECOVERY_UPLOAD_MAX    (64 * 1024 * 1024UL)
 #define RECOVERY_MIN_FIRMWARE_SIZE (1 * 1024 * 1024UL)
 #define RECOVERY_MAX_UBOOT_SIZE    (2 * 1024 * 1024UL)
+#define RECOVERY_XG2010G_UBI_SIZE  0x1b800000ULL
+#define RECOVERY_XG2010G_UBI_ERASE_SIZE 0x20000U
+#define RECOVERY_XG2010G_UBI_WRITE_SIZE 0x800U
+#define RECOVERY_XG2010G_UBI_OOB_SIZE 0x80U
 
 /* Delay before reboot after flashing completes, to let browser finish reads */
 #define REBOOT_DELAY_MS        3000
@@ -234,12 +238,27 @@ struct recovery_ubi_layout {
 
 static const struct recovery_ubi_layout recovery_ubi_layouts[] = {
 	{ "2.0", "ubi" },
-	{ "1.5", "ubi1.5" },
-	{ "1.0", "ubi1.0" },
 };
 
 static const struct recovery_ubi_layout *current_ubi_layout =
 	&recovery_ubi_layouts[0];
+
+static bool recovery_is_xg2010g(void)
+{
+	return of_machine_is_compatible("naoki,xg2010g") ||
+	       of_machine_is_compatible("econet,xg2010g") ||
+	       of_machine_is_compatible("econet,xg2010g-ubi") ||
+	       of_machine_is_compatible("gemtek,xg2010g") ||
+	       of_machine_is_compatible("gemtek,xg2010g-ubi");
+}
+
+static bool recovery_xg2010g_ubi_mtd_valid(const struct mtd_info *mtd)
+{
+	return mtd && mtd->size == RECOVERY_XG2010G_UBI_SIZE &&
+		mtd->erasesize == RECOVERY_XG2010G_UBI_ERASE_SIZE &&
+		mtd->writesize == RECOVERY_XG2010G_UBI_WRITE_SIZE &&
+		mtd->oobsize == RECOVERY_XG2010G_UBI_OOB_SIZE;
+}
 
 enum recovery_backend {
 	RECOVERY_BACKEND_MTD = 0,
@@ -1520,6 +1539,11 @@ static const char *recovery_ubi_part(enum upload_target tgt)
 {
 	const char *part;
 
+	/* XG2010G deliberately has one project layout; never target a
+	 * legacy ubi1.x partition through an overridden environment. */
+	if (tgt == TARGET_FIRMWARE && recovery_is_xg2010g())
+		return "ubi";
+
 	if (tgt == TARGET_FIRMWARE && current_ubi_layout)
 		return current_ubi_layout->part;
 
@@ -1552,6 +1576,8 @@ static int recovery_parse_ubi_layout(const char *uri)
 	if (strncmp(query, "?layout=", 8))
 		return -EINVAL;
 	query += 8;
+	if (recovery_is_xg2010g() && strcmp(query, "2.0"))
+		return -EINVAL;
 
 	for (i = 0; i < ARRAY_SIZE(recovery_ubi_layouts); i++) {
 		if (!strcmp(query, recovery_ubi_layouts[i].version)) {
@@ -1575,6 +1601,11 @@ static int recovery_select_ubi(const char *part)
 	ubi = ubi_get_device(0);
 	if (ubi) {
 		selected = ubi->mtd && !strcmp(ubi->mtd->name, part);
+		if (selected && recovery_is_xg2010g() &&
+		    !recovery_xg2010g_ubi_mtd_valid(ubi->mtd)) {
+			ubi_put_device(ubi);
+			return -EINVAL;
+		}
 		ubi_put_device(ubi);
 	}
 	if (selected)
@@ -1586,6 +1617,16 @@ static int recovery_select_ubi(const char *part)
 	ret = ubi_part((char *)part, NULL);
 	if (ret)
 		recovery_ubi_attach_error = ret;
+	else if (recovery_is_xg2010g()) {
+		ubi = ubi_get_device(0);
+		if (!ubi || !recovery_xg2010g_ubi_mtd_valid(ubi->mtd)) {
+			if (ubi)
+				ubi_put_device(ubi);
+			recovery_ubi_attach_error = -EINVAL;
+			return recovery_ubi_attach_error;
+		}
+		ubi_put_device(ubi);
+	}
 
 	return ret;
 }
@@ -1597,17 +1638,28 @@ static int recovery_try_ubi_target(enum upload_target tgt,
 	struct ubi_volume_desc *desc;
 	struct ubi_device *ubi;
 	struct mtd_info *mtd;
-	const char *volume = env_get(recovery_target_env(tgt));
+	const char *volume;
 	const char *part = recovery_ubi_part(tgt);
 
-	if (!volume)
-		volume = recovery_default_target(tgt);
+	if (tgt == TARGET_FIRMWARE && recovery_is_xg2010g())
+		volume = "fit";
+	else {
+		volume = env_get(recovery_target_env(tgt));
+		if (!volume)
+			volume = recovery_default_target(tgt);
+	}
 
 	if (recovery_select_ubi(part)) {
 		mtd_probe_devices();
 		mtd = get_mtd_device_nm(part);
 		if (IS_ERR_OR_NULL(mtd))
 			return -ENODEV;
+		if (recovery_is_xg2010g() &&
+		    !recovery_xg2010g_ubi_mtd_valid(mtd)) {
+			printf("Recovery: refusing XG2010G UBI partition with unexpected geometry\n");
+			put_mtd_device(mtd);
+			return -EINVAL;
+		}
 
 		target->backend = RECOVERY_BACKEND_UBI;
 		target->name = volume;
@@ -1656,7 +1708,7 @@ static int recovery_try_ubi_target(enum upload_target tgt,
 static int recovery_resolve_target(enum upload_target tgt,
 				   struct recovery_target *target)
 {
-	const char *name = env_get(recovery_target_env(tgt));
+	const char *name;
 	const char *raw;
 	struct mtd_info *mtd;
 	ulong ofs;
@@ -1664,8 +1716,13 @@ static int recovery_resolve_target(enum upload_target tgt,
 
 	memset(target, 0, sizeof(*target));
 
-	if (!name)
-		name = recovery_default_target(tgt);
+	if (tgt == TARGET_FIRMWARE && recovery_is_xg2010g())
+		name = "fit";
+	else {
+		name = env_get(recovery_target_env(tgt));
+		if (!name)
+			name = recovery_default_target(tgt);
+	}
 
 	mtd_probe_devices();
 
@@ -1695,7 +1752,7 @@ static int recovery_resolve_target(enum upload_target tgt,
 	raw = env_get(recovery_raw_env(tgt));
 	if (!raw || !*raw)
 		raw = recovery_default_raw(tgt);
-	if (raw && *raw) {
+	if (!(tgt == TARGET_FIRMWARE && recovery_is_xg2010g()) && raw && *raw) {
 		mtd = get_mtd_device_nm(raw);
 		if (!IS_ERR_OR_NULL(mtd)) {
 			ulong size_cap = recovery_target_size_cap(tgt);
@@ -1715,7 +1772,10 @@ static int recovery_resolve_target(enum upload_target tgt,
 		}
 	}
 
-	mtd = get_mtd_device_nm(name);
+	if (!(tgt == TARGET_FIRMWARE && recovery_is_xg2010g()))
+		mtd = get_mtd_device_nm(name);
+	else
+		mtd = NULL;
 	if (!IS_ERR_OR_NULL(mtd)) {
 		target->backend = RECOVERY_BACKEND_MTD;
 		target->name = name;
@@ -1727,6 +1787,8 @@ static int recovery_resolve_target(enum upload_target tgt,
 
 	if (!recovery_try_ubi_target(tgt, target))
 		return 0;
+	if (tgt == TARGET_FIRMWARE && recovery_is_xg2010g())
+		return -ENODEV;
 
 	if (!raw) {
 		switch (tgt) {
@@ -1816,14 +1878,8 @@ static int recovery_validate_mtd0_bootloader_image(const void *image,
 	const u8 *p = image;
 	u32 fip_magic;
 
-	if (size <= RECOVERY_MTD0_FIP_OFFSET + sizeof(u32)) {
-		printf("mtd0 bootloader image is too small: %lu bytes\n",
-		       (unsigned long)size);
-		return -EINVAL;
-	}
-
-	if (size > RECOVERY_MAX_UBOOT_SIZE) {
-		printf("mtd0 bootloader image exceeds 2 MiB: %lu bytes\n",
+	if (size != RECOVERY_MAX_UBOOT_SIZE) {
+		printf("mtd0 bootloader image must be exactly 2 MiB: %lu bytes\n",
 		       (unsigned long)size);
 		return -EINVAL;
 	}
@@ -2097,7 +2153,8 @@ static bool recovery_preserve_ubi_volume(const char *name)
 	if (!name || !*name)
 		return true;
 
-	if (of_machine_is_compatible("econet,xg2010g") ||
+	if (of_machine_is_compatible("naoki,xg2010g") ||
+	    of_machine_is_compatible("econet,xg2010g") ||
 	    of_machine_is_compatible("econet,xg2010g-ubi") ||
 	    of_machine_is_compatible("gemtek,xg2010g") ||
 	    of_machine_is_compatible("gemtek,xg2010g-ubi"))
@@ -2343,7 +2400,8 @@ static int recovery_ensure_preserved_ubi_volumes(struct recovery_target *target)
 	if (recovery_select_ubi(target->ubi_part))
 		return -ENODEV;
 
-	if (of_machine_is_compatible("econet,xg2010g") ||
+	if (of_machine_is_compatible("naoki,xg2010g") ||
+	    of_machine_is_compatible("econet,xg2010g") ||
 	    of_machine_is_compatible("econet,xg2010g-ubi") ||
 	    of_machine_is_compatible("gemtek,xg2010g") ||
 	    of_machine_is_compatible("gemtek,xg2010g-ubi") ||
@@ -2897,7 +2955,18 @@ err_t httpd_post_begin(void *connection, const char *uri, const char *http_reque
         ulong env_max = env_get_hex("recovery_max", 0);
         loff_t tmpofs = 0;
         ulong dts_max = recovery_calc_target_max(current_target, &tmpofs);
-        ulong max = dts_max ? dts_max : RECOVERY_UPLOAD_MAX;
+        ulong max;
+
+        /* Do not accept data that cannot be mapped to a real target. */
+        if (!dts_max) {
+            printf("httpd: upload target %d is unavailable (ofs 0x%llx)\n",
+                   current_target, (unsigned long long)tmpofs);
+            prog_phase = -1;
+            strlcpy(response_uri, "/400.html", response_uri_len);
+            return ERR_ARG;
+        }
+
+        max = dts_max;
 
         if (current_target == TARGET_FIRMWARE)
             min = RECOVERY_MIN_FIRMWARE_SIZE;
@@ -2907,6 +2976,14 @@ err_t httpd_post_begin(void *connection, const char *uri, const char *http_reque
 
         if (env_max && env_max < max)
             max = env_max; /* allow env to further cap */
+        if (content_len > 0 && current_target == TARGET_UBOOT &&
+            (ulong)content_len != RECOVERY_MAX_UBOOT_SIZE) {
+            prog_phase = -1;
+            printf("httpd: U-Boot upload must be exactly %lu bytes, got %d\n",
+                   RECOVERY_MAX_UBOOT_SIZE, content_len);
+            strlcpy(response_uri, "/400.html", response_uri_len);
+            return ERR_ARG;
+        }
         if (content_len <= 0 || (ulong)content_len > max ||
             (min && (ulong)content_len < min)) {
             prog_phase = -1;
@@ -2968,6 +3045,7 @@ err_t httpd_post_begin(void *connection, const char *uri, const char *http_reque
 err_t httpd_post_receive_data(void *connection, struct pbuf *p)
 {
 	struct pbuf *q;
+	bool overflow = false;
 	u16_t recved = 0;
 
 	if (reboot_post_pending) {
@@ -2979,25 +3057,54 @@ err_t httpd_post_receive_data(void *connection, struct pbuf *p)
 		pbuf_free(p);
 		return ERR_ARG;
 	}
+	if (!p)
+		return ERR_ARG;
+	if (recv_off > recv_total) {
+		printf("httpd: invalid receive state %u/%u\n",
+		       recv_off, recv_total);
+		pbuf_free(p);
+		post_ok = 0;
+		prog_phase = -1;
+		return ERR_ARG;
+	}
 
 	/* Copy request payload into RAM and defer flash work to the main loop. */
 	for (q = p; q != NULL; q = q->next) {
-        size_t avail = recv_total - recv_off;
-        size_t clen = q->len;
-	        if (clen > avail)
-	            clen = avail;
-	        memcpy(recv_base + recv_off, q->payload, clen);
-	        recv_off += clen;
+		size_t avail;
+		size_t clen;
+
+		if (recv_off >= recv_total) {
+			overflow = true;
+			break;
+		}
+
+		avail = (size_t)recv_total - recv_off;
+		clen = q->len;
+		if (clen > avail) {
+			clen = avail;
+			overflow = true;
+		}
+		if (clen) {
+			memcpy(recv_base + recv_off, q->payload, clen);
+			recv_off += clen;
+		}
     }
     recved = p->tot_len;
     pbuf_free(p);
+
+	if (overflow) {
+		printf("httpd: request body exceeds Content-Length (%u bytes)\n",
+		       recv_total);
+		post_ok = 0;
+		prog_phase = -1;
+	}
 
 #if LWIP_HTTPD_POST_MANUAL_WND
     if (recved)
         httpd_post_data_recved(connection, recved);
 #endif
 
-    return ERR_OK;
+	return overflow ? ERR_ARG : ERR_OK;
 }
 
 void httpd_post_finished(void *connection, char *response_uri, u16_t response_uri_len)
@@ -3087,6 +3194,16 @@ static int flash_image(struct recovery_status_led_ctrl *status_leds)
 		printf("No flash target found for upload type %d\n", current_target);
 		prog_phase = -1;
 		return ret;
+	}
+
+	if (current_target == TARGET_UBOOT &&
+	    (target.backend != RECOVERY_BACKEND_MTD || !target.mtd ||
+	     target.ofs != 0 || target.limit != RECOVERY_MAX_UBOOT_SIZE ||
+	     target.limit > target.mtd->size)) {
+		printf("Refusing U-Boot target outside the fixed 2 MiB bootloader region\n");
+		recovery_release_target(&target);
+		prog_phase = -1;
+		return -EINVAL;
 	}
 
 	if (current_target == TARGET_FIRMWARE &&
