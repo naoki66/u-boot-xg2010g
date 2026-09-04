@@ -536,17 +536,56 @@ Linux 命令行解析器可能把它们分别截断为 `vendor_name=ECONET` 和
 
 ### ONU 类型：`onu_type=71`
 
-SDK 对 `0x71` 的编码定义如下：
+`onu_type` 是一个按位打包的十六进制字节，不是单一的模式编号。SDK 使用
+`ONUTYPE_MASK=0x03`、`COMBOPON_MASK=0x04`、`BBF247_MASK=0x08` 和
+`ONUMODE_MASK=0xf0` 解码，其组合公式为：
+
+```text
+onu_type = (PON_MODE << 4) | (BBF247_BIT << 3) | (COMBO_BIT << 2) | ONU_TYPE
+```
+
+低位字段定义：
 
 | 位 | 值 | 含义 |
 | --- | --- | --- |
-| `[1:0]` | `1` | SFU，偏桥接型 ONU；`2` 才是 HGU/家庭网关型 |
-| `2` | `0` | 非 Combo PON |
-| `3` | `0` | 非 BBF.247 模式 |
-| `[7:4]` | `7` | XGS-PON |
+| `[1:0]` | `0` | unknown，未知 ONU 类型 |
+| `[1:0]` | `1` | SFU，偏桥接型 ONU |
+| `[1:0]` | `2` | HGU，家庭网关型 ONU |
+| `2` | `0/1` | 非 Combo PON / Combo PON |
+| `3` | `0/1` | 非 BBF.247 / BBF.247 |
 
-因此 `onu_type=71` 的完整含义是 **XGS-PON + SFU**。这与原厂 TTL 中的
-`PON MAC GET ONU_TYPE = SFU` 和 `PON MAC GET ONU_MODE = XGSPON` 完全一致。
+高四位 `[7:4]` 是 SDK 的 `XMCSIF_WanDetectionMode_t`（`ONUMODE_MASK`）枚举：
+
+| 高四位 | SDK 枚举 | SDK 打印名 | 协议/速率含义 |
+| --- | --- | --- | --- |
+| `0x0` | `AUTO` | `auto` | 自动检测（兼容旧版 preversion） |
+| `0x1` | `GPON` | `GPON` | GPON |
+| `0x2` | `EPON` | `EPON` | 普通 1G EPON |
+| `0x3` | `10G_1G_EPON` | `XEPON-ASYM` | XE-PON 非对称：下行 10G、上行 1G |
+| `0x4` | `10G_10G_EPON` | `XEPON-SYM` | XE-PON 对称：下行/上行均 10G |
+| `0x5` | `1G_1G_EPON` | `XEPON_1G` | XEPON 1G+1G（10G MAC 的 1G/1G 模式） |
+| `0x6` | `XGPON` | `XGPON` | XG-PON |
+| `0x7` | `XGSPON` | `XGSPON` | XGS-PON（对称 10G） |
+| `0x8` | `NGPON2_10G_10G` | `NGPON2-10G_10G` | NG-PON2：10G/10G |
+| `0x9` | `NGPON2_10G_2G` | `NGPON2-10G_2G` | NG-PON2：10G/2G |
+| `0xA` | `NGPON2_2G_2G` | `NGPON2-2G_2G` | NG-PON2：2G/2G |
+| `0xB` | `GPON_SYM` | `GPON-SYM` | GPON 对称模式 |
+| `0xC` | `TURBO_EPON` | `TURBO-EPON` | Turbo EPON |
+
+常用编码示例（低位取非 Combo、非 BBF.247）：
+
+| 组合 | `onu_type` |
+| --- | --- |
+| GPON + SFU | `0x11`（命令行可写 `11`） |
+| EPON + SFU | `0x21`（命令行可写 `21`） |
+| XGPON + SFU | `0x61`（命令行可写 `61`） |
+| XGSPON + SFU | `0x71`（命令行可写 `71`） |
+| XGSPON + HGU | `0x72`（命令行可写 `72`） |
+
+因此 `onu_type=71` 中的 `71` 实际是十六进制 `0x71`：高四位 `0x7` 为
+XGS-PON，低两位 `0x1` 为 SFU，bit 2/3 均为 0，即 **XGS-PON + SFU、非 Combo、
+非 BBF.247**。这与原厂 TTL 中的 `PON MAC GET ONU_TYPE = SFU` 和
+`PON MAC GET ONU_MODE = XGSPON` 完全一致。
 
 ### QDMA：`qdma_init=69bb`
 
