@@ -137,6 +137,162 @@ UBI 会根据 NAND 的实际擦除块和坏块情况管理可用 PEB。尾部预
 板级初始化会自动清理原厂 ``ubi.mtd=system/tclinux*`` 和
 ``root=/dev/mtdblock*`` 参数，避免 Linux 误挂载原厂分区。
 
+bootargs 参数说明
+------------------
+
+本节根据 XG2010G 原厂 TTL、Airoha/ECONET SDK 启动参数解析代码和实机 PHY
+初始化日志校核。文档或聊天中出现的 ``\_`` 只是 Markdown 转义，实际参数名中
+只有普通下划线，不能把反斜杠传给内核。
+
+``onu_type``、``qdma_init``、``bootflag`` 和 ``serdes_*`` 由 SDK 使用
+``%x``、``%hx`` 或 ``%hhx`` 解析，因此没有 ``0x`` 前缀时仍按十六进制解释。
+例如 ``onu_type=71`` 实际是 ``0x71``，``qdma_init=69bb`` 实际是
+``0x69bb``。
+
+基础与平台参数
+~~~~~~~~~~~~~~
+
+.. list-table::
+   :header-rows: 1
+   :widths: 24 20 56
+
+   * - 参数
+     - 当前值
+     - 含义
+   * - ``sdram_conf``
+     - ``0x00108893``
+     - Airoha/ECONET SDRAM 配置标识；DDR 早期初始化由匹配硬件的 BL2 完成，当前 SDK 未公开完整位定义，应保留原厂值。
+   * - ``vendor_name``
+     - ``ECONET Technologies Corp.``
+     - 厂商标识，供厂商系统接口或用户态组件识别。
+   * - ``product_name``
+     - ``xPON ONU``
+     - 产品类别名称。
+   * - ``snmp_sysobjid``
+     - ``1.2.3.4.5``
+     - SNMP ``sysObjectID``；当前为原厂通用占位 OID，不影响启动。
+   * - ``country_code``
+     - ``ff``
+     - 一字节区域字段；``0xff`` 更接近默认/未指定值，不是 ISO 国家代码。
+   * - ``console``
+     - ``ttyS0,115200n8``
+     - Linux 主控制台：``ttyS0``、115200 波特率、8N1。
+   * - ``earlycon``
+     - （无值）
+     - 在正式串口驱动初始化前启用早期内核日志。
+   * - ``bootflag``
+     - ``0``
+     - 原厂双镜像中表示 Main Image；项目不再使用原厂双分区回退，仅保留兼容字段，实际失败回退由 ``run boot_ubi || http_recovery`` 控制。
+
+``vendor_name`` 和 ``product_name`` 含空格，这是原厂命令行的既有写法。标准
+Linux 命令行解析可能把它们截断为 ``vendor_name=ECONET`` 和
+``product_name=xPON``；原厂实机仍可正常启动。若用户态必须得到完整值，应使用
+带内嵌双引号的值或不含空格的标识。
+
+UBI 与根文件系统
+~~~~~~~~~~~~~~~~
+
+.. list-table::
+   :header-rows: 1
+   :widths: 26 74
+
+   * - 参数
+     - 含义
+   * - ``ubi.mtd=ubi``
+     - 将项目的 ``ubi`` MTD 分区挂接为 ``ubi0``；这是新布局的正确值，不能改回原厂 ``ubi.mtd=system``。
+   * - ``ubi.block=0,fit``
+     - 从 ``ubi0`` 的 ``fit`` 卷建立块设备，供 FIT 根文件系统路径使用。
+   * - ``root=/dev/fit0``
+     - 使用 FIT 导出的根文件系统作为 Linux 根设备。
+   * - ``rootwait``
+     - 等待根设备出现后再挂载。
+   * - ``ramdisk_size=65536``
+     - 保留 64 MiB ramdisk 上限，兼容可能带 initramfs 的 FIT。
+   * - ``rdinit=/sbin/init``
+     - 使用 initramfs 时指定首个用户态进程。
+
+只有 ``ubi.mtd=ubi`` 还不足以选择根文件系统；项目默认 ``bootargs`` 已包含
+``ubi.block``、``root`` 和等待参数。不要使用截断在 ``serdes_usb2=000`` 的
+不完整命令行。
+
+GPIO/LED 兼容字段
+~~~~~~~~~~~~~~~~~
+
+``ether_gpio=0c``、``dsl_gpio=0b`` 和 ``internet_gpio=02`` 是原厂平台的
+单字节指示字段；``power_gpio=1515`` 是厂商打包字段，不能按十进制 GPIO 1515
+理解。``multi_upgrade_gpio=0b020400000000000000000000000000`` 是 16 字节升级
+状态 GPIO/LED 配置表，不是单一 GPIO 编号。当前公开 SDK 只列出这些环境变量名，
+没有给出 ``power_gpio`` 和 ``multi_upgrade_gpio`` 的完整打包格式，未取得厂商
+解码实现前不应自行改写。
+
+ONU 类型：``onu_type=71``
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+``0x71`` 的位域为：``[1:0]=1`` 表示 SFU，bit 2=0 表示非 Combo PON，bit 3=0
+表示非 BBF.247，``[7:4]=7`` 表示 XGS-PON。因此完整含义是 **XGS-PON + SFU**，
+与原厂 TTL 的 ``PON MAC GET ONU_TYPE = SFU`` 和 ``PON MAC GET ONU_MODE = XGSPON``
+一致。
+
+QDMA：``qdma_init=69bb``
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+``0x69bb`` 的有效配置为：LAN/WAN payload selector 均为 ``3``（256 字节档），
+LAN/WAN DSCP/描述符均走 SRAM，并开启 ``FAST_WAN``、``FAST_XSI_PCIE1``、
+``FAST_XSI_ETHER``、``FAST_XSI_PON``。EN7581 SDK 因此预留 LAN 4 MiB、WAN 5 MiB，
+合计 9 MiB；原厂 TTL 的 ``0x400000``/``0x500000`` 输出与此一致。
+
+SerDes 参数
+~~~~~~~~~~~
+
+EN7581 使用六个独立的 ``serdes_*`` 参数。每个值是 12 位十六进制配置字：
+
+.. code-block:: text
+
+   [11:8] PHY 类型
+    [7:4] Ethernet 类型：0=无，1=LAN，2=WAN
+    [3:0] 当前 SerDes 通道的接口选择
+
+.. list-table::
+   :header-rows: 1
+   :widths: 28 38 34
+
+   * - 参数
+     - 解码
+     - 实机对应
+   * - ``serdes_pon=000``
+     - 原生 PON 接口，Ethernet/PHY 字段为零
+     - XGS-PON
+   * - ``serdes_ethernet=411``
+     - PHY profile C + LAN + USXGMII
+     - RTL8261N，MDIO 地址 5
+   * - ``serdes_wifi1=005``
+     - WiFi1/PCIe0 选择 ``NONE``
+     - 通道关闭
+   * - ``serdes_wifi2=413``
+     - PHY profile C + LAN + USXGMII
+     - PCIe1 通道改作 RTL8261N Ethernet，MDIO 地址 8
+   * - ``serdes_usb1=111``
+     - AN8811 profile + LAN + HSGMII
+     - USB1 通道改作 EN8811H 2.5G，MDIO 地址 ``0xf``
+   * - ``serdes_usb2=000``
+     - USB3 接口，Ethernet/PHY 字段为零
+     - 未改作 Ethernet
+
+``WiFi2``、``USB1`` 是 SoC SerDes 复用通道名称，不表示设备实际装有 Wi-Fi
+或使用 USB 功能。``serdes_sel=0`` 在 EN7581 分支主要是兼容残留，不会覆盖六路
+独立配置。原厂 ``serdes_ethernet=411`` 不应改成 ``421``，后者会把 Ethernet
+SerDes 的角色从 LAN 改成 WAN，和原厂 TTL 及端口映射不符。
+
+校核依据
+~~~~~~~~
+
+* 原厂 TTL：内核命令行、QDMA 缓冲区、PHY 初始化和 XGS-PON/SFU 输出。
+* SDK ``linux/arch/arm64/mach-econet/ecnt_bootargs.c``：十六进制参数解析。
+* SDK ``private/xpon_10g/src/ic/AN7581.c``、``union_ic_init.c``：ONU/PON 位域。
+* SDK ``private/install_bsp/inc/blapi_system_bsp.h``：QDMA 掩码和环境字段。
+* SDK ``linux/include/global_inc/uapi/ecnt_event_global/ecnt_event_serdes.h``、
+  ``linux/drivers/char/arht_serdes_cfg.c``：SerDes 位域和接口定义。
+
 刷写边界
 --------
 
