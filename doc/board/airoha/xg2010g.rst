@@ -519,7 +519,7 @@ Asset，并用 SHA256 变量校验。
    * - ``...-fip-signed.bin``
      - 放入 mtd0 ``0x800`` 偏移的完整 signed FIP
    * - ``...-ubi-preloader.bin``
-     - BL2/preloader 裸文件，用于 X 模式第一段 XMODEM
+     - 包含 BL2 和 ``tb-fw-cert`` 的 signed FIP，用于 X 模式第一段 XMODEM
    * - ``...-ubi-bl31-uboot.fip``
      - BL31 + U-Boot/BL33 FIP，用于 X 模式第二段 XMODEM
    * - ``...-bl31.bin``
@@ -529,7 +529,7 @@ Asset，并用 SHA256 变量校验。
    * - ``sha256sums.txt``
      - 所有产物的 SHA256 校验值
 
-artifact 内也保留不带版本号的 ``ubi-preloader.bin``、
+artifact 内也保留固定文件名的 ``ubi-preloader.bin``（BL2 + ``tb-fw-cert`` signed FIP）、
 ``ubi-bl31-uboot.fip``、``bl31.bin`` 和 ``u-boot-raw.bin``，方便救砖时
 直接选择文件。
 

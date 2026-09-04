@@ -381,6 +381,17 @@ jobs:
 
           "$FIPTOOL" info out/fip-xg2010g-signed.bin | tee out/fip-info.txt
 
+          # BootROM 的 X 模式第一阶段按 Secure Boot 链验证 BL2 与 tb-fw 证书。
+          "$FIPTOOL" create \
+            --align "$FIP_ALIGN" \
+            --tb-fw signing/bl2.bin \
+            --tb-fw-cert certs/tb_fw.crt \
+            out/ubi-preloader.bin
+
+          "$FIPTOOL" info out/ubi-preloader.bin | tee out/ubi-preloader-fip-info.txt
+          grep -q 'Trusted Boot Firmware BL2:' out/ubi-preloader-fip-info.txt
+          grep -q 'Trusted Boot Firmware BL2 certificate:' out/ubi-preloader-fip-info.txt
+
           "$FIPTOOL" create \
             --align "$FIP_ALIGN" \
             --soc-fw signing/bl31.bin \
@@ -460,6 +471,7 @@ jobs:
 
           test -s out/mtd0-bootloader-xg2010g-signed.bin
           test -s out/fip-xg2010g-signed.bin
+          test -s out/ubi-preloader.bin
           test -s out/ubi-bl31-uboot.fip
           test -s signing/bl2.bin
           test -s signing/bl31.bin
@@ -473,13 +485,14 @@ jobs:
           cp tools/mkimage build-output/ 2>/dev/null || true
           cp out/mtd0-bootloader-xg2010g-signed.bin "build-output/${mtd0_name}"
           cp out/fip-xg2010g-signed.bin "build-output/${fip_name}"
-          cp signing/bl2.bin "build-output/${preloader_name}"
+          cp out/ubi-preloader.bin "build-output/${preloader_name}"
           cp signing/bl31.bin "build-output/${bl31_name}"
           cp out/ubi-bl31-uboot.fip "build-output/${recovery_fip_name}"
-          cp signing/bl2.bin build-output/ubi-preloader.bin
+          cp out/ubi-preloader.bin build-output/ubi-preloader.bin
           cp signing/bl31.bin build-output/bl31.bin
           cp out/ubi-bl31-uboot.fip build-output/ubi-bl31-uboot.fip
           cp out/fip-info.txt build-output/
+          cp out/ubi-preloader-fip-info.txt build-output/
           cp out/ubi-bl31-uboot-fip-info.txt build-output/
           {
             echo "Build date: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -498,7 +511,7 @@ jobs:
             echo "Raw U-Boot/BL33: ${uboot_raw_name}"
             echo "mtd0 image: ${mtd0_name}"
             echo "FIP image: ${fip_name}"
-            echo "Recovery BL2/preloader: ${preloader_name}"
+            echo "Recovery BL2/preloader signed FIP: ${preloader_name}"
             echo "Recovery BL31+U-Boot FIP: ${recovery_fip_name}"
             echo "Raw BL31: ${bl31_name}"
             echo "Certificate chain: BL2 tb-fw, BL31 soc-fw, U-Boot BL33 nt-fw"

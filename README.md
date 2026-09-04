@@ -306,11 +306,11 @@ flowchart TD
 | --- | --- |
 | `xg2010g-...-mtd0-signed.bin` | 完整 2 MiB `/dev/mtd0` bootloader 镜像，用于替换 `bootloader` 分区 |
 | `xg2010g-...-fip-signed.bin` | signed FIP 本体，位于完整 mtd0 镜像的 `0x800` 偏移 |
-| `xg2010g-...-ubi-preloader.bin` | BL2/preloader 裸文件，用于 X 模式第一段 XMODEM |
+| `xg2010g-...-ubi-preloader.bin` | 包含 BL2 和 `tb-fw-cert` 的 signed FIP，用于 X 模式第一段 XMODEM |
 | `xg2010g-...-ubi-bl31-uboot.fip` | BL31 + U-Boot/BL33 FIP，用于 X 模式第二段 XMODEM 和 Web Recovery |
 | `xg2010g-...-bl31.bin` | BL31 裸文件，便于核对和离线调试 |
 | `xg2010g-...-u-boot-raw.bin` | 裸 U-Boot/BL33，仅供调试 |
-| `ubi-preloader.bin` | 不带版本号的 BL2/preloader，救砖时方便选择 |
+| `ubi-preloader.bin` | 固定文件名的 BL2 + `tb-fw-cert` signed FIP，救砖时方便选择 |
 | `ubi-bl31-uboot.fip` | 不带版本号的 BL31 + U-Boot FIP，救砖时方便选择 |
 | `sha256sums.txt` | 所有产物 SHA256 |
 | `build-info.txt` | 构建 commit、日期、签名状态和镜像边界 |
