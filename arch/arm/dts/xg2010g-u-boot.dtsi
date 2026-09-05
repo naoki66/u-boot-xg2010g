@@ -7,6 +7,30 @@
 
 #include "an7581-u-boot.dtsi"
 
+/* The board reserves the complete first 2 MiB for the early boot chain. */
+/delete-node/ &atf_reserved;
+
+/* Enable the FE/QDMA block and the MACs used by the XG2010G ports. */
+&eth {
+	status = "okay";
+};
+
+&gdm1 {
+	status = "okay";
+};
+
+&gdm2 {
+	status = "okay";
+	managed = "in-band-status";
+	phy-mode = "10gbase-r";
+};
+
+&gdm4 {
+	status = "okay";
+	managed = "in-band-status";
+	phy-mode = "usxgmii";
+};
+
 &snfi {
 	status = "okay";
 };

@@ -27,7 +27,8 @@ env:
   BL23_FIP_MAX_SIZE: "0x100000"
   BL33_LOAD_MAX_SIZE: "0x100000"
   BL_DECOMPRESS_INPUT_MAX_SIZE: "0x58000"
-  BUNDLED_FW_DIR: board/airoha/xg2010g/firmware
+  # Only the immutable mtd0 prefix remains in-tree; BL2/BL31 are built online.
+  BUNDLED_ASSET_DIR: board/airoha/xg2010g/firmware
   BUNDLED_MTD0_PREFIX_SHA256: 82830140f4f8842702d0569065c27071b7cc24e0876e6c487cb4d9d81c294dd7
   CROSS_COMPILE: aarch64-linux-gnu-
   DEFCONFIG: xg2010g_defconfig
@@ -166,6 +167,9 @@ jobs:
       - name: Configure U-Boot
         run: |
           set -euo pipefail
+          # GitHub runners are normally fresh, but keep the build deterministic
+          # when this workflow is replayed on a reused workspace.
+          make distclean
           make ${DEFCONFIG}
 
       - name: Build U-Boot
@@ -275,12 +279,36 @@ jobs:
 
           # BL2 先把 BL33 载荷读入固定解压缓冲区，再展开到最终执行地址。
           "$LZMA" e u-boot.bin out/atf/bl33.bin
-          bl33_payload_size=$(stat -c%s out/atf/bl33.bin)
-          bl33_payload_limit=$((BL_DECOMPRESS_INPUT_MAX_SIZE))
-          if (( bl33_payload_size > bl33_payload_limit )); then
-            echo "BL33 payload is ${bl33_payload_size} bytes; decompression buffer is ${bl33_payload_limit} bytes" >&2
-            exit 1
-          fi
+          python3 - <<'PY'
+          import os
+          import struct
+          from pathlib import Path
+
+          raw = Path("u-boot.bin").read_bytes()
+          payload = Path("out/atf/bl33.bin").read_bytes()
+          if len(payload) < 13:
+              raise SystemExit("BL33 LZMA payload is truncated")
+
+          # Airoha's decoder consumes the classic LZMA-Alone header:
+          # 5-byte properties followed by an 8-byte little-endian size.
+          declared_size = struct.unpack_from("<Q", payload, 5)[0]
+          if declared_size != len(raw):
+              raise SystemExit(
+                  f"BL33 LZMA size header is {declared_size} bytes; "
+                  f"u-boot.bin is {len(raw)} bytes"
+              )
+
+          limit = int(os.environ["BL_DECOMPRESS_INPUT_MAX_SIZE"], 0)
+          if len(payload) > limit:
+              raise SystemExit(
+                  f"BL33 payload is {len(payload)} bytes; "
+                  f"BL2 input buffer is {limit} bytes"
+              )
+          print(
+              f"BL33 LZMA payload: {len(payload)} bytes "
+              f"(decompresses to {declared_size} bytes)"
+          )
+          PY
           ls -la out/atf/bl2.bin out/atf/bl31.bin out/atf/bl33.bin
 
       - name: Prepare signing inputs
@@ -354,7 +382,7 @@ jobs:
           if [ -n "$MTD0_PREFIX_B64$MTD0_PREFIX_URL" ]; then
             restore_binary "mtd0 prefix" "$MTD0_PREFIX_B64" "$MTD0_PREFIX_URL" signing/mtd0-prefix.bin "$MTD0_PREFIX_SHA256" || missing+=("XG2010G_MTD0_PREFIX_B64 or XG2010G_MTD0_PREFIX_URL")
           else
-            cp "${BUNDLED_FW_DIR}/mtd0-prefix.bin" signing/mtd0-prefix.bin
+            cp "${BUNDLED_ASSET_DIR}/mtd0-prefix.bin" signing/mtd0-prefix.bin
             printf '%s  %s\n' "$BUNDLED_MTD0_PREFIX_SHA256" signing/mtd0-prefix.bin | sha256sum -c -
           fi
 
@@ -431,6 +459,11 @@ jobs:
             out/fip-xg2010g-signed.bin
 
           "$FIPTOOL" info out/fip-xg2010g-signed.bin | tee out/fip-info.txt
+          "$FIPTOOL" unpack --force \
+            --nt-fw out/fip-bl33-check.bin \
+            out/fip-xg2010g-signed.bin
+          cmp out/fip-bl33-check.bin out/atf/bl33.bin
+          rm -f out/fip-bl33-check.bin
           check_fip_size out/fip-xg2010g-signed.bin "$((BL23_FIP_MAX_SIZE))"
 
           # X 模式第一阶段需要同时携带 BL2 与 tb-fw 证书。
@@ -457,6 +490,11 @@ jobs:
             out/ubi-bl31-uboot.fip
 
           "$FIPTOOL" info out/ubi-bl31-uboot.fip | tee out/ubi-bl31-uboot-fip-info.txt
+          "$FIPTOOL" unpack --force \
+            --nt-fw out/recovery-bl33-check.bin \
+            out/ubi-bl31-uboot.fip
+          cmp out/recovery-bl33-check.bin out/atf/bl33.bin
+          rm -f out/recovery-bl33-check.bin
           check_fip_size out/ubi-bl31-uboot.fip "$((BL23_FIP_MAX_SIZE))"
 
       - name: Compose 2 MiB mtd0 image

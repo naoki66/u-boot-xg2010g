@@ -194,7 +194,7 @@ flowchart LR
 1. 在 TF-A `v2.10` 基础上叠加固定版本的 Airoha AN7581 平台源码。
 2. 分别编译 BL21、BL22、BL23，加入 NAND flash table 后组装 BL2/preloader。
 3. 编译 BL31，并按 Airoha 启动格式进行 LZMA 压缩。
-4. 编译本仓库的 `u-boot.bin`，生成 Airoha LZMA 格式的 BL33 载荷。
+4. 编译本仓库的 `u-boot.bin`，生成 Airoha LZMA 格式的 BL33 镜像。
 5. 使用 `fiptool` 和 `cert_create` 生成证书链与 signed FIP。
 6. 将 signed FIP 放入 2 MiB `mtd0` 镜像的 `0x800` 偏移，保留原厂前导区。
 
@@ -202,7 +202,7 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    U["U-Boot 源码<br/>xg2010g_defconfig"] --> B["u-boot.bin<br/>LZMA BL33 载荷"]
+    U["U-Boot 源码<br/>xg2010g_defconfig"] --> B["u-boot.bin<br/>LZMA BL33 镜像"]
     T["TF-A v2.10 + Airoha overlay<br/>固定源码版本"] --> L2["BL21 + BL22 + BL23<br/>编译并组装 BL2"]
     T --> L31["BL31 源码构建<br/>Airoha LZMA"]
     K["XG2010G_TB_PRIVATE_KEY<br/>仅存 GitHub Secret"] --> C["cert_create<br/>Trusted Boot 证书链"]
@@ -243,7 +243,7 @@ flowchart LR
 | `bootloader` | `0x00000000` | `0x00200000` | 2 MiB | 完整 signed mtd0/FIP，只在确认后替换 |
 | `uenv` | `0x00200000` | `0x00400000` | 2 MiB | U-Boot 环境，默认保留 |
 | `dsd` | `0x00400000` | `0x00600000` | 2 MiB | 原厂校准数据，必须保留 |
-| `ubi` | `0x00600000` | `0x1be00000` | 440 MiB | 项目唯一系统 UBI，必须包含 `fit` 卷 |
+| `ubi` | `0x00600000` | `0x1be00000` | 440 MiB | 项目后续系统 UBI，必须包含 `fit` 卷 |
 | `reserved_bmt` | `0x1be00000` | `0x20000000` | 66 MiB | NAND 坏块替代/BMT 预留 |
 
 后续系统升级只应刷写 `ubi` 区域，也就是偏移 `0x00600000`、长度
@@ -270,7 +270,7 @@ flowchart LR
 
 </details>
 
-原厂 TTL 日志确认该 NAND 曾使用 `tclinux`、`tclinux_slave`、`system` 分区，
+原厂固件该 NAND 曾使用 `tclinux`、`tclinux_slave`、`system` 分区，
 且原厂 UBI 挂载在 `system`。这些名称和布局仅用于硬件校核，本项目不识别、
 不挂载、也不回退到原厂分区；刷入项目 U-Boot 后必须使用上表中的新 `ubi` 布局。
 TTL 同时确认 NAND 几何为 512 MiB、128 KiB 擦除块、2 KiB 页、128 字节 OOB；
@@ -688,6 +688,7 @@ reboot
 | 自动启动停在 `Unknown command 'flash'` | 还在用原厂 `bootcmd`，未迁移环境 | 按[首启环境迁移](#-首启环境迁移)执行一次 `setenv`/`saveenv` |
 | `tftpboot` 超时 / 下载失败 | IP 不对、TFTP 被防火墙拦截、网线没接 1G 口 | 确认电脑为 `192.168.0.205/24`、TFTP server 已运行并放行、网线接设备 1G 口 |
 | `filesize` 不是 `0x200000` 或 CRC 与发布值不符 | 文件下载不完整或拿错产物 | 用 Release 内 `sha256sums.txt` 校验，重新下载 `mtd0-signed.bin` |
+| `project UBI ... has no 'fit' volume` | NAND 仍是原厂 UBI 布局，还没有刷入项目系统镜像 | 先执行 `http_recovery`，上传 `ubi-squashfs-sysupgrade.itb`，由 Recovery 重建带 `fit` 卷的 `ubi` 分区 |
 | 第二段 XMODEM 后进不了 Web Recovery | <kbd>RESET</kbd> 时序不对 | 传输 100% 前按住 <kbd>RESET</kbd>，等流水灯亮起再松开，无痕模式访问 |
 | UBI 启动失败 | UBI 未格式化、缺少 `fit` 卷或 FIT 无法启动 | 等待自动进入 Web Recovery，上传完整项目系统镜像，Recovery 自动重建 UBI |
 

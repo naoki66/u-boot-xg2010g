@@ -8,7 +8,7 @@
 		#size-cells = <2>;
 		ranges;
 
-		atf-reserved-memory@80000000 {
+		atf_reserved: atf-reserved-memory@80000000 {
 			no-map;
 			reg = <0x0 0x80000000 0x0 0x40000>;
 		};
@@ -77,7 +77,7 @@
 			airoha,scu = <&scuclk>;
 		};
 
-		eth: ethernet@1fb50000 {
+		ethernet@1fb50000 {
 			compatible = "airoha,en7581-eth";
 			reg = <0 0x1fb50000 0 0x2600>,
 				<0 0x1fb54000 0 0x2000>,
@@ -95,7 +95,7 @@
 				      "hsi0-mac", "hsi1-mac", "hsi-mac",
 				      "xfp-mac";
 
-			gdm1: ethernet@1 {
+			ethernet@1 {
 				compatible = "airoha,eth-mac";
 				reg = <1>;
 				phy-mode = "internal";
@@ -146,7 +146,7 @@
 			#address-cells = <1>;
 			#size-cells = <0>;
 
-			spi_nand: nand@0 {
+			nand@0 {
 				compatible = "spi-nand";
 				reg = <0>;
 				spi-max-frequency = <50000000>;
