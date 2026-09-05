@@ -46,7 +46,7 @@ BL2 负责早期硬件与 DDR 初始化，BL31 提供 EL3 运行时环境。本�
 
 * BL21、BL22、BL23 分三次编译，再与 NAND flash table 组装为 BL2；
 * BL31 编译后使用 Airoha 兼容的 LZMA 4.65 格式压缩；
-* 本项目 U-Boot 作为 BL33；
+* 本项目 U-Boot 经 LZMA 压缩后作为 BL33 载荷；
 * ``cert_create`` 和 ``fiptool`` 生成证书链与完整 FIP。
 
 原厂 FIP 的证书链不能因为只替换了 BL33 就默认继续有效。若证书中包含
@@ -434,12 +434,12 @@ GitHub Actions 签名构建
 构建 signed ``mtd0``；不再提供 ``skip``/未签名选项，也不会上传未签名
 artifact：
 
-* 编译 ``xg2010g_defconfig``，将 ``u-boot.bin`` 作为 BL33；
+* 编译 ``xg2010g_defconfig``，将 ``u-boot.bin`` 压缩为 BL33 载荷；
 * 构建 TF-A 的 ``fiptool`` 和 ``cert_create``；
 * 从固定的 Airoha TF-A 源码构建 BL2 和 BL31；
 * 使用仓库内置的 mtd0 前导区，也可用 Secret 或私有 URL 覆盖；
 * 使用 ``cert_create`` 为 ``--tb-fw`` BL2、``--soc-fw`` BL31 和
-  ``--nt-fw`` U-Boot/BL33 生成 Trusted Boot 证书链；
+  ``--nt-fw`` BL33 压缩载荷生成 Trusted Boot 证书链；
 * 使用 ``fiptool create`` 生成 signed FIP；
 * 将 FIP 写入 2 MiB mtd0 镜像中的 ``0x800`` 偏移，前导区保持原厂内容，
   其余尾部填充 ``0xff``。

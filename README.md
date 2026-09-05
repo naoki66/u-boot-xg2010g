@@ -194,7 +194,7 @@ flowchart LR
 1. 在 TF-A `v2.10` 基础上叠加固定版本的 Airoha AN7581 平台源码。
 2. 分别编译 BL21、BL22、BL23，加入 NAND flash table 后组装 BL2/preloader。
 3. 编译 BL31，并按 Airoha 启动格式进行 LZMA 压缩。
-4. 编译本仓库的 `u-boot.bin`，作为 BL33。
+4. 编译本仓库的 `u-boot.bin`，生成 Airoha LZMA 格式的 BL33 载荷。
 5. 使用 `fiptool` 和 `cert_create` 生成证书链与 signed FIP。
 6. 将 signed FIP 放入 2 MiB `mtd0` 镜像的 `0x800` 偏移，保留原厂前导区。
 
@@ -202,7 +202,7 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    U["U-Boot 源码<br/>xg2010g_defconfig"] --> B["u-boot.bin<br/>BL33"]
+    U["U-Boot 源码<br/>xg2010g_defconfig"] --> B["u-boot.bin<br/>LZMA BL33 载荷"]
     T["TF-A v2.10 + Airoha overlay<br/>固定源码版本"] --> L2["BL21 + BL22 + BL23<br/>编译并组装 BL2"]
     T --> L31["BL31 源码构建<br/>Airoha LZMA"]
     K["XG2010G_TB_PRIVATE_KEY<br/>仅存 GitHub Secret"] --> C["cert_create<br/>Trusted Boot 证书链"]
