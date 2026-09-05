@@ -116,6 +116,13 @@
 				status = "disabled";
 			};
 
+			gdm3: ethernet@3 {
+				compatible = "airoha,eth-mac";
+				reg = <3>;
+
+				status = "disabled";
+			};
+
 			gdm4: ethernet@4 {
 				compatible = "airoha,eth-mac";
 				reg = <4>;

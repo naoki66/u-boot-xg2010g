@@ -10,9 +10,39 @@
 /* The board reserves the complete first 2 MiB for the early boot chain. */
 /delete-node/ &atf_reserved;
 
+/ {
+	aliases {
+		ethernet0 = &gdm4;
+		ethernet1 = &gdm1;
+		ethernet2 = &gdm2;
+	};
+};
+
 /* Enable the FE/QDMA block and the MACs used by the XG2010G ports. */
 &eth {
+	pinctrl-names = "default";
+	pinctrl-0 = <&mdio_pins>;
 	status = "okay";
+};
+
+&en7581_pinctrl {
+	mdio_pins: mdio-pins {
+		mux {
+			function = "mdio";
+			groups = "mdio";
+		};
+	};
+};
+
+&mdio {
+	/* RTL8261N on the dedicated Ethernet USXGMII SerDes (LAN1/WAN). */
+	phy5: ethernet-phy@5 {
+		compatible = "ethernet-phy-ieee802.3-c45";
+		reg = <5>;
+		reset-gpios = <&en7581_pinctrl 29 GPIO_ACTIVE_LOW>;
+		reset-assert-us = <200000>;
+		reset-deassert-us = <200000>;
+	};
 };
 
 &gdm1 {
@@ -29,6 +59,7 @@
 	status = "okay";
 	managed = "in-band-status";
 	phy-mode = "usxgmii";
+	phy-handle = <&phy5>;
 };
 
 &snfi {
