@@ -46,7 +46,7 @@
 
 <p align="center">
   <sub>
-    mtd0 固定 2 MiB · BL2/BL31 来自匹配原厂备份 · U-Boot 作为 BL33 · 仅产出 signed artifact
+    mtd0 固定 2 MiB · BL2/BL31 与 U-Boot 均由源码构建 · 仅产出 signed artifact
   </sub>
 </p>
 
@@ -95,7 +95,7 @@
 | 设备 | Brightspeed XG2010G |
 | 平台 | Airoha AN7581/AN7583 类启动链 |
 | bootloader 分区 | `0x00000000-0x00200000`，固定 2 MiB |
-| 工具版本 | TF-A tooling 固定为 `v2.13.0`，用于构建 `fiptool` 和 `cert_create` |
+| 工具版本 | TF-A tooling `v2.13.0`；Airoha TF-A 基于 `v2.10` 与固定 overlay commit |
 
 XG2010G 的 `mtd0` 通常不是裸 `u-boot.bin`，而是一个从 BL2 开始验证的完整
 启动包/FIP，包含 BL2、BL31、U-Boot/BL33 和证书材料。本仓库本地编译出的
@@ -111,8 +111,8 @@ signed mtd0/FIP。
 | 🧩 | 主线 U-Boot | 基于 U-Boot `2026.10-rc3` 主线，新增 XG2010G 板级 DTS 与 `xg2010g_defconfig` |
 | 🔐 | 强制 Trusted Boot | 设备只接受 signed 镜像，自行编译须自行完成签名 |
 | 🧱 | mtd0 边界硬校验 | workflow 强制 mtd0 = `0x200000`（2 MiB），越界直接构建失败 |
-| 🧬 | 可追溯 BL2/BL31 | 内置前导区、BL2、BL31 均记录 SHA256，来自原厂镜像备份 |
-| 🔧 | 固定可复现工具链 | TF-A 锁定 `v2.13.0`，`fiptool` / `cert_create` 版本可复现 |
+| 🧬 | 源码构建 BL2/BL31 | 固定 Airoha TF-A、Mbed TLS、Arm GNU Toolchain 与 LZMA 版本 |
+| 🔧 | 固定签名工具链 | TF-A tooling 锁定 `v2.13.0`，用于生成 FIP 与证书 |
 | 🛟 | 双救砖路径 | BootROM X 模式 XMODEM 两段传输 + Web Recovery 重建 UBI |
 | 📦 | 完整交付物 | 每次构建附带 `sha256sums.txt` 与 `build-info.txt`（commit、日期、边界） |
 
@@ -189,25 +189,25 @@ flowchart LR
 
 ## 🔑 BL2、BL31 与签名
 
-BL2 和 BL31 必须来自与设备硬件匹配的 Airoha 固件输入，
-或者来自 Airoha TF-A/DDR 初始化源码和签名配置。
+当前构建方案：
 
-当前兼容方案：
-
-1. 使用从原厂 `mtd0` 备份提取的 BL2/preloader、BL31 和 `mtd0` 前导区。
-2. 编译本仓库得到新的 `u-boot.bin`，作为 BL33。
-3. 使用 TF-A `fiptool` 和 `cert_create` 重新组装 signed FIP。
-4. 签名链从 BL2 开始：`--tb-fw` BL2、`--soc-fw` BL31、`--nt-fw` U-Boot/BL33。
-5. 将 signed FIP 放回 2 MiB `mtd0` 镜像的 `0x800` 偏移。
+1. 在 TF-A `v2.10` 基础上叠加固定版本的 Airoha AN7581 平台源码。
+2. 分别编译 BL21、BL22、BL23，加入 NAND flash table 后组装 BL2/preloader。
+3. 编译 BL31，并按 Airoha 启动格式进行 LZMA 压缩。
+4. 编译本仓库的 `u-boot.bin`，作为 BL33。
+5. 使用 `fiptool` 和 `cert_create` 生成证书链与 signed FIP。
+6. 将 signed FIP 放入 2 MiB `mtd0` 镜像的 `0x800` 偏移，保留原厂前导区。
 
 签名构建流水线：
 
 ```mermaid
 flowchart LR
     U["U-Boot 源码<br/>xg2010g_defconfig"] --> B["u-boot.bin<br/>BL33"]
+    T["TF-A v2.10 + Airoha overlay<br/>固定源码版本"] --> L2["BL21 + BL22 + BL23<br/>编译并组装 BL2"]
+    T --> L31["BL31 源码构建<br/>Airoha LZMA"]
     K["XG2010G_TB_PRIVATE_KEY<br/>仅存 GitHub Secret"] --> C["cert_create<br/>Trusted Boot 证书链"]
-    L2["ubi-preloader.bin<br/>BL2（原厂备份）"] --> C
-    L31["bl31.bin<br/>BL31（原厂备份）"] --> C
+    L2 --> C
+    L31 --> C
     B --> C
     L2 --> F["fiptool create<br/>signed FIP"]
     L31 --> F
@@ -222,8 +222,8 @@ flowchart LR
     classDef key fill:#fee2e2,stroke:#dc2626,color:#0f172a;
     classDef out fill:#e0f2fe,stroke:#0284c7,color:#0f172a;
 
-    class U,B src;
-    class L2,L31,P stock;
+    class U,B,T,L2,L31 src;
+    class P stock;
     class K,C key;
     class F,M,A out;
 ```
@@ -308,7 +308,7 @@ flowchart TD
 | `xg2010g-...-fip-signed.bin` | signed FIP 本体，位于完整 mtd0 镜像的 `0x800` 偏移 |
 | `xg2010g-...-ubi-preloader.bin` | 包含 BL2 和 `tb-fw-cert` 的 signed FIP，用于 X 模式第一段 XMODEM |
 | `xg2010g-...-ubi-bl31-uboot.fip` | BL31 + U-Boot/BL33 FIP，用于 X 模式第二段 XMODEM 和 Web Recovery |
-| `xg2010g-...-bl31.bin` | BL31 裸文件，便于核对和离线调试 |
+| `xg2010g-...-bl31.bin` | 源码构建的 BL31 Airoha LZMA 载荷，便于核对和离线调试 |
 | `xg2010g-...-u-boot-raw.bin` | 裸 U-Boot/BL33，仅供调试 |
 | `ubi-preloader.bin` | 固定文件名的 BL2 + `tb-fw-cert` signed FIP，救砖时方便选择 |
 | `ubi-bl31-uboot.fip` | 不带版本号的 BL31 + U-Boot FIP，救砖时方便选择 |
@@ -708,7 +708,7 @@ make CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc)
 > GitHub Actions/Releases 生成的 signed artifact。
 
 更多板级细节见 [doc/board/airoha/xg2010g.rst](doc/board/airoha/xg2010g.rst)；
-内置 BL2/BL31 固件说明见
+保留的 mtd0 前导区说明见
 [board/airoha/xg2010g/firmware/README.md](board/airoha/xg2010g/firmware/README.md)。
 
 <p align="right"><a href="#top"><b>↑ 返回顶部</b></a></p>

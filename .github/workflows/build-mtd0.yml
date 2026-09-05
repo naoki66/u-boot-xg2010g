@@ -18,8 +18,13 @@ on:
 
 env:
   ARCH: arm
-  BUNDLED_BL2_SHA256: 6dfd08d05691cf2d89e0892b4e597a8d9a8ebab80a362c9b7a02868ffcddd1c8
-  BUNDLED_BL31_SHA256: e79bb6960e71384a4f8b67be0d0cd0f64042b174b4e6b2502428238f548245f3
+  AIROHA_ATF_REF: 94892b9e42eb1f6992e60bce904c3ef42ea995c8
+  ATF_BASE_REF: v2.10
+  BL2_TOOLCHAIN_NAME: arm-gnu-toolchain-15.3.rel1-x86_64-arm-none-eabi
+  BL2_TOOLCHAIN_SHA256: 563bebb2b97d53382b956d6ee1fe61e2cae26699901417234a37df505ef9b5fa
+  BL2_TOOLCHAIN_URL: https://gitlab.arm.com/api/v4/projects/tooling%2Fgnu-toolchains-for-arm/packages/generic/gnu-toolchain/15.3.rel1/arm-gnu-toolchain-15.3.rel1-x86_64-arm-none-eabi.tar.xz
+  BL2_XMODEM_MAX_SIZE: "0x1f800"
+  BL23_FIP_MAX_SIZE: "0x100000"
   BUNDLED_FW_DIR: board/airoha/xg2010g/firmware
   BUNDLED_MTD0_PREFIX_SHA256: 82830140f4f8842702d0569065c27071b7cc24e0876e6c487cb4d9d81c294dd7
   CROSS_COMPILE: aarch64-linux-gnu-
@@ -31,6 +36,9 @@ env:
   DEFAULT_TFW_NVCTR: "0"
   FIXED_TFA_REF: v2.13.0
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  LZMA_SOURCE_SHA256: dcbdb5f4843eff638e4a5e8be0e2486a3c5483df73c70823618db8e66f609ec2
+  LZMA_SOURCE_URL: https://sources.openwrt.org/lzma-4.65.tar.bz2
+  MBEDTLS_REF: 72718dd87e087215ce9155a826ee5a66cfbe9631
 
 permissions:
   contents: read
@@ -136,6 +144,7 @@ jobs:
           sudo apt-get install -y \
             gcc-aarch64-linux-gnu \
             binutils-aarch64-linux-gnu \
+            bzip2 \
             build-essential \
             bison \
             flex \
@@ -148,7 +157,9 @@ jobs:
             bc \
             curl \
             git \
-            openssl
+            openssl \
+            rsync \
+            xz-utils
 
       - name: Configure U-Boot
         run: |
@@ -206,22 +217,68 @@ jobs:
           test -x trusted-firmware-a/tools/fiptool/fiptool
           test -x trusted-firmware-a/tools/cert_create/cert_create
 
+      - name: Checkout TF-A v2.10 base
+        uses: actions/checkout@v7
+        with:
+          repository: ARM-software/arm-trusted-firmware
+          ref: ${{ env.ATF_BASE_REF }}
+          path: trusted-firmware-a-build
+
+      - name: Checkout Airoha TF-A overlay
+        uses: actions/checkout@v7
+        with:
+          repository: Ansuel/atf-airoha
+          ref: ${{ env.AIROHA_ATF_REF }}
+          path: atf-airoha-overlay
+
+      - name: Checkout Mbed TLS
+        uses: actions/checkout@v7
+        with:
+          repository: Mbed-TLS/mbedtls
+          ref: ${{ env.MBEDTLS_REF }}
+          path: mbedtls-3.4.1
+
+      - name: Prepare Airoha TF-A source and host tools
+        run: |
+          set -euo pipefail
+          rsync -a --exclude=.git/ atf-airoha-overlay/ trusted-firmware-a-build/
+          python3 board/airoha/xg2010g/atf/prepare-atf.py trusted-firmware-a-build
+
+          mkdir -p atf-tools/lzma-4.65
+          curl -fsSL --retry 3 -o atf-tools/bl2-toolchain.tar.xz "$BL2_TOOLCHAIN_URL"
+          printf '%s  %s\n' "$BL2_TOOLCHAIN_SHA256" atf-tools/bl2-toolchain.tar.xz | sha256sum -c -
+          tar -C atf-tools -xf atf-tools/bl2-toolchain.tar.xz
+
+          curl -fsSL --retry 3 -o atf-tools/lzma-4.65.tar.bz2 "$LZMA_SOURCE_URL"
+          printf '%s  %s\n' "$LZMA_SOURCE_SHA256" atf-tools/lzma-4.65.tar.bz2 | sha256sum -c -
+          tar -C atf-tools/lzma-4.65 --strip-components=1 -xjf atf-tools/lzma-4.65.tar.bz2
+          make -C atf-tools/lzma-4.65/CPP/7zip/Compress/LZMA_Alone -f makefile.gcc -j"$(nproc)"
+          install -m 0755 \
+            atf-tools/lzma-4.65/CPP/7zip/Compress/LZMA_Alone/lzma \
+            atf-tools/lzma
+
+      - name: Build XG2010G BL2 and BL31
+        env:
+          AARCH64_CROSS_COMPILE: aarch64-linux-gnu-
+          ARM32_CROSS_COMPILE: ${{ github.workspace }}/atf-tools/${{ env.BL2_TOOLCHAIN_NAME }}/bin/arm-none-eabi-
+          ATF_DIR: ${{ github.workspace }}/trusted-firmware-a-build
+          LZMA: ${{ github.workspace }}/atf-tools/lzma
+          MBEDTLS_DIR: ${{ github.workspace }}/mbedtls-3.4.1
+          OUTPUT_DIR: ${{ github.workspace }}/out/atf
+        run: |
+          set -euo pipefail
+          board/airoha/xg2010g/atf/build-atf.sh
+          test -s out/atf/bl2.bin
+          test -s out/atf/bl31.bin
+          ls -la out/atf/bl2.bin out/atf/bl31.bin
+
       - name: Prepare signing inputs
         id: signing
         env:
-          BL2_B64: ${{ secrets.XG2010G_BL2_B64 }}
-          BL2_SHA256: ${{ vars.XG2010G_BL2_SHA256 }}
-          BL2_URL: ${{ secrets.XG2010G_BL2_URL || vars.XG2010G_BL2_URL }}
-          BL31_B64: ${{ secrets.XG2010G_BL31_B64 }}
-          BL31_SHA256: ${{ vars.XG2010G_BL31_SHA256 }}
-          BL31_URL: ${{ secrets.XG2010G_BL31_URL || vars.XG2010G_BL31_URL }}
           FIP_OFFSET_DEC: ${{ steps.params.outputs.fip_offset_dec }}
           MTD0_PREFIX_B64: ${{ secrets.XG2010G_MTD0_PREFIX_B64 }}
           MTD0_PREFIX_SHA256: ${{ vars.XG2010G_MTD0_PREFIX_SHA256 }}
           MTD0_PREFIX_URL: ${{ secrets.XG2010G_MTD0_PREFIX_URL || vars.XG2010G_MTD0_PREFIX_URL }}
-          ORIGINAL_MTD0_B64: ${{ secrets.XG2010G_ORIGINAL_MTD0_B64 }}
-          ORIGINAL_MTD0_SHA256: ${{ vars.XG2010G_ORIGINAL_MTD0_SHA256 }}
-          ORIGINAL_MTD0_URL: ${{ secrets.XG2010G_ORIGINAL_MTD0_URL || vars.XG2010G_ORIGINAL_MTD0_URL }}
           TB_PRIVATE_KEY: ${{ secrets.XG2010G_TB_PRIVATE_KEY }}
           TB_PRIVATE_KEY_B64: ${{ secrets.XG2010G_TB_PRIVATE_KEY_B64 }}
         run: |
@@ -281,41 +338,13 @@ jobs:
             openssl pkey -in signing/tb_key.pem -noout
           fi
 
-          if [ -n "$ORIGINAL_MTD0_B64" ] || [ -n "$ORIGINAL_MTD0_URL" ]; then
-            restore_binary "original mtd0" "$ORIGINAL_MTD0_B64" "$ORIGINAL_MTD0_URL" signing/original-mtd0.bin "$ORIGINAL_MTD0_SHA256"
-            python3 - <<'PY'
-          import os
-          from pathlib import Path
-
-          offset = int(os.environ["FIP_OFFSET_DEC"], 10)
-          mtd0 = Path("signing/original-mtd0.bin").read_bytes()
-          if offset < 0 or offset >= len(mtd0):
-              raise SystemExit(f"Invalid FIP offset {offset} for original mtd0 size {len(mtd0)}")
-          Path("signing/mtd0-prefix.bin").write_bytes(mtd0[:offset])
-          Path("signing/original.fip").write_bytes(mtd0[offset:])
-          PY
-            trusted-firmware-a/tools/fiptool/fiptool unpack \
-              --force \
-              --tb-fw signing/bl2.bin \
-              --soc-fw signing/bl31.bin \
-              signing/original.fip
+          cp out/atf/bl2.bin signing/bl2.bin
+          cp out/atf/bl31.bin signing/bl31.bin
+          if [ -n "$MTD0_PREFIX_B64$MTD0_PREFIX_URL" ]; then
+            restore_binary "mtd0 prefix" "$MTD0_PREFIX_B64" "$MTD0_PREFIX_URL" signing/mtd0-prefix.bin "$MTD0_PREFIX_SHA256" || missing+=("XG2010G_MTD0_PREFIX_B64 or XG2010G_MTD0_PREFIX_URL")
           else
-            if [ -n "$BL2_B64$BL2_URL$BL31_B64$BL31_URL$MTD0_PREFIX_B64$MTD0_PREFIX_URL" ]; then
-              restore_binary "BL2" "$BL2_B64" "$BL2_URL" signing/bl2.bin "$BL2_SHA256" || missing+=("XG2010G_BL2_B64 or XG2010G_BL2_URL")
-              restore_binary "BL31" "$BL31_B64" "$BL31_URL" signing/bl31.bin "$BL31_SHA256" || missing+=("XG2010G_BL31_B64 or XG2010G_BL31_URL")
-              if (( FIP_OFFSET_DEC > 0 )); then
-                restore_binary "mtd0 prefix" "$MTD0_PREFIX_B64" "$MTD0_PREFIX_URL" signing/mtd0-prefix.bin "$MTD0_PREFIX_SHA256" || missing+=("XG2010G_MTD0_PREFIX_B64 or XG2010G_MTD0_PREFIX_URL")
-              else
-                : > signing/mtd0-prefix.bin
-              fi
-            else
-              cp "${BUNDLED_FW_DIR}/ubi-preloader.bin" signing/bl2.bin
-              cp "${BUNDLED_FW_DIR}/bl31.bin" signing/bl31.bin
-              cp "${BUNDLED_FW_DIR}/mtd0-prefix.bin" signing/mtd0-prefix.bin
-              printf '%s  %s\n' "$BUNDLED_BL2_SHA256" signing/bl2.bin | sha256sum -c -
-              printf '%s  %s\n' "$BUNDLED_BL31_SHA256" signing/bl31.bin | sha256sum -c -
-              printf '%s  %s\n' "$BUNDLED_MTD0_PREFIX_SHA256" signing/mtd0-prefix.bin | sha256sum -c -
-            fi
+            cp "${BUNDLED_FW_DIR}/mtd0-prefix.bin" signing/mtd0-prefix.bin
+            printf '%s  %s\n' "$BUNDLED_MTD0_PREFIX_SHA256" signing/mtd0-prefix.bin | sha256sum -c -
           fi
 
           if [ -f signing/mtd0-prefix.bin ]; then
@@ -347,6 +376,17 @@ jobs:
           set -euo pipefail
           CERT_CREATE=trusted-firmware-a/tools/cert_create/cert_create
           FIPTOOL=trusted-firmware-a/tools/fiptool/fiptool
+
+          check_fip_size() {
+            local image=$1
+            local limit=$2
+            local size
+            size=$(stat -c%s "$image")
+            if (( size > limit )); then
+              echo "$image is ${size} bytes; limit is ${limit} bytes" >&2
+              return 1
+            fi
+          }
 
           "$CERT_CREATE" -n \
             --rot-key signing/tb_key.pem \
@@ -380,8 +420,9 @@ jobs:
             out/fip-xg2010g-signed.bin
 
           "$FIPTOOL" info out/fip-xg2010g-signed.bin | tee out/fip-info.txt
+          check_fip_size out/fip-xg2010g-signed.bin "$((BL23_FIP_MAX_SIZE))"
 
-          # BootROM 的 X 模式第一阶段按 Secure Boot 链验证 BL2 与 tb-fw 证书。
+          # X 模式第一阶段需要同时携带 BL2 与 tb-fw 证书。
           "$FIPTOOL" create \
             --align "$FIP_ALIGN" \
             --tb-fw signing/bl2.bin \
@@ -391,6 +432,7 @@ jobs:
           "$FIPTOOL" info out/ubi-preloader.bin | tee out/ubi-preloader-fip-info.txt
           grep -q 'Trusted Boot Firmware BL2:' out/ubi-preloader-fip-info.txt
           grep -q 'Trusted Boot Firmware BL2 certificate:' out/ubi-preloader-fip-info.txt
+          check_fip_size out/ubi-preloader.bin "$((BL2_XMODEM_MAX_SIZE))"
 
           "$FIPTOOL" create \
             --align "$FIP_ALIGN" \
@@ -404,6 +446,7 @@ jobs:
             out/ubi-bl31-uboot.fip
 
           "$FIPTOOL" info out/ubi-bl31-uboot.fip | tee out/ubi-bl31-uboot-fip-info.txt
+          check_fip_size out/ubi-bl31-uboot.fip "$((BL23_FIP_MAX_SIZE))"
 
       - name: Compose 2 MiB mtd0 image
         if: ${{ steps.signing.outputs.ready == 'true' }}
@@ -443,6 +486,9 @@ jobs:
       - name: Prepare artifacts
         id: artifact
         env:
+          AIROHA_ATF_BUILD_REF: ${{ env.AIROHA_ATF_REF }}
+          ATF_BUILD_BASE_REF: ${{ env.ATF_BASE_REF }}
+          BL2_BUILD_TOOLCHAIN: ${{ env.BL2_TOOLCHAIN_NAME }}
           BUILD_MODE: ${{ steps.mode.outputs.value }}
           COMMIT_SHORT: ${{ steps.version.outputs.commit }}
           DATE_STAMP: ${{ steps.version.outputs.date }}
@@ -452,6 +498,7 @@ jobs:
           RELEASE_DATE: ${{ steps.version.outputs.release_date }}
           SIGNED_READY: ${{ steps.signing.outputs.ready }}
           TFA_REF: ${{ steps.params.outputs.tfa_ref }}
+          TFA_MBEDTLS_REF: ${{ env.MBEDTLS_REF }}
           UBOOT_VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
@@ -504,7 +551,11 @@ jobs:
             echo "U-Boot version: ${UBOOT_VERSION}"
             echo "Signed mtd0: true"
             echo "Signing: required"
-            echo "TF-A ref: ${TFA_REF}"
+            echo "TF-A tooling ref: ${TFA_REF}"
+            echo "Airoha TF-A base ref: ${ATF_BUILD_BASE_REF}"
+            echo "Airoha TF-A overlay ref: ${AIROHA_ATF_BUILD_REF}"
+            echo "Airoha TF-A Mbed TLS ref: ${TFA_MBEDTLS_REF}"
+            echo "BL2 toolchain: ${BL2_BUILD_TOOLCHAIN}"
             echo "mtd0 size: ${MTD0_SIZE}"
             echo "FIP offset: ${FIP_OFFSET}"
             echo "FIP alignment: ${FIP_ALIGN}"
@@ -596,9 +647,9 @@ jobs:
 
           - \`${MTD0_NAME}\` - 2 MiB \`/dev/mtd0\` bootloader image. Contains preserved prefix, BL2, BL31, signed certificates, and this repository's U-Boot as BL33.
           - \`${FIP_NAME}\` - signed FIP only, placed at the configured mtd0 FIP offset.
-          - \`${PRELOADER_NAME}\` - BL2/preloader raw file for XMODEM recovery.
+          - \`${PRELOADER_NAME}\` - signed FIP containing the compiled BL2 and its content certificate for XMODEM recovery.
           - \`${RECOVERY_FIP_NAME}\` - BL31 + U-Boot FIP for the second XMODEM recovery transfer.
-          - \`${BL31_NAME}\` - raw BL31 extracted from the trusted input.
+          - \`${BL31_NAME}\` - compiled BL31 compressed with the Airoha LZMA container.
           - \`${UBOOT_RAW_NAME}\` - raw U-Boot/BL33 from this build.
           - \`sha256sums.txt\` - SHA256 checksums for all artifacts.
 
@@ -608,7 +659,7 @@ jobs:
 
           ## Safety note
 
-          This image depends on the supplied Airoha-compatible BL2/BL31, mtd0 prefix, and Trusted Boot key. If the device has different BootROM/eFuse signing policy, do not flash this artifact.
+          This image uses the pinned Airoha TF-A source, the preserved mtd0 prefix, and the configured signing key. Confirm the target boot policy before flashing.
           EOF
 
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
