@@ -241,7 +241,7 @@ jobs:
       - name: Prepare Airoha TF-A source and host tools
         run: |
           set -euo pipefail
-          rsync -a --exclude=.git/ atf-airoha-overlay/ trusted-firmware-a-build/
+          rsync -a --checksum --exclude=.git/ atf-airoha-overlay/ trusted-firmware-a-build/
           python3 board/airoha/xg2010g/atf/prepare-atf.py trusted-firmware-a-build
 
           mkdir -p atf-tools/lzma-4.65
